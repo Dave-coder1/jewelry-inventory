@@ -1,9 +1,13 @@
-// Step 1: static list, hardcoded data. No IndexedDB, no interactivity yet
-// (that arrives in later build steps — see JEWELRY-PWA-SPEC.md §17).
+// Step 2: IndexedDB. The list now renders from the `items` store via db.js
+// instead of a hardcoded array. On first run (empty store) it seeds the same
+// 8 fake items so there is something to look at — after that they are real,
+// persisted records. See JEWELRY-PWA-SPEC.md §17.
+//
+// No raw IndexedDB calls in this file — everything goes through DB (db.js).
 
 const TYPES = ["մատանի", "բրասլետ", "կուլոն", "ցեպ", "կոպեկ", "օղեր", "այլ"];
 
-const FAKE_ITEMS = [
+const SEED_ITEMS = [
   { code: "A1", name: "Yellow gold bracelet", type: TYPES[1], note: "Grandmother's, from the 1980s", status: "bank" },
   { code: "A2", name: "Wedding ring", type: TYPES[0], note: "Engraved inside band", status: "home" },
   { code: "A3", name: "Small pendant with cross", type: TYPES[2], note: "", status: "bank" },
@@ -14,9 +18,45 @@ const FAKE_ITEMS = [
   { code: "A8", name: "Miscellaneous gold chain fragment", type: TYPES[6], note: "Not sure what this belonged to", status: "bank" },
 ];
 
+function makeItemFromSeed(seed, position) {
+  const now = new Date();
+  return {
+    uid: crypto.randomUUID(),
+    code: seed.code,
+    position,
+    name: seed.name,
+    type: seed.type,
+    note: seed.note,
+    status: seed.status,
+    photo1Thumb: null,
+    photo1Full: null,
+    photo2Thumb: null,
+    photo2Full: null,
+    history: [{ id: crypto.randomUUID(), to: seed.status, date: now.toISOString().slice(0, 10) }],
+    createdAt: now.toISOString(),
+    deletedAt: null,
+  };
+}
+
+// First run only: the `items` store is empty, so there is nothing to show.
+// Seed it with the same 8 fake items step 1 used, now as real records.
+async function seedIfEmpty() {
+  const existing = await DB.getAllItems();
+  if (existing.length > 0) return existing;
+
+  const seeded = [];
+  for (let i = 0; i < SEED_ITEMS.length; i++) {
+    const item = makeItemFromSeed(SEED_ITEMS[i], i + 1);
+    await DB.putItem(item);
+    seeded.push(item);
+  }
+  return seeded;
+}
+
 function renderRow(item) {
   const row = document.createElement("div");
   row.className = "row";
+  row.dataset.uid = item.uid;
 
   const pillClass = item.status === "bank" ? "pill-bank" : "pill-home";
   const pillIcon = item.status === "bank" ? "🏦" : "🏠";
@@ -34,10 +74,18 @@ function renderRow(item) {
   return row;
 }
 
-function render() {
+function render(items) {
   const rowsEl = document.getElementById("rows");
   rowsEl.innerHTML = "";
-  FAKE_ITEMS.forEach((item) => rowsEl.appendChild(renderRow(item)));
+  items
+    .filter((item) => !item.deletedAt)
+    .sort((a, b) => a.position - b.position)
+    .forEach((item) => rowsEl.appendChild(renderRow(item)));
 }
 
-render();
+async function init() {
+  const items = await seedIfEmpty();
+  render(items);
+}
+
+init();
