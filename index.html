@@ -36,6 +36,55 @@
     </div>
   </div>
 
+  <div class="backdrop" id="backdrop"></div>
+  <div class="sheet" id="sheet">
+    <div class="sheet-drag" id="sheetDrag">
+      <div class="sheet-handle"></div>
+    </div>
+    <div class="sheet-title" id="sheetTitle"></div>
+    <div class="sheet-content">
+      <div class="sheet-photos">
+        <div class="sheet-photo">📷</div>
+        <div class="sheet-photo">📦</div>
+      </div>
+
+      <div class="sheet-field">
+        <div class="sheet-label">Name</div>
+        <input type="text" class="sheet-input" id="fieldName" maxlength="60">
+      </div>
+
+      <div class="sheet-field">
+        <div class="sheet-label">Type</div>
+        <select class="sheet-select" id="fieldType"></select>
+      </div>
+
+      <div class="sheet-field">
+        <div class="sheet-label">Note</div>
+        <textarea class="sheet-textarea" id="fieldNote" maxlength="120" rows="2"></textarea>
+        <div class="sheet-note-count" id="noteCount">0 / 120</div>
+      </div>
+
+      <div class="sheet-field">
+        <div class="sheet-label">Code</div>
+        <input type="text" class="sheet-input sheet-code-input" id="fieldCode" maxlength="2">
+        <div class="sheet-error" id="codeError"></div>
+      </div>
+
+      <div class="sheet-field">
+        <div class="sheet-label">Status</div>
+        <button class="sheet-status-pill" id="fieldStatus" disabled></button>
+      </div>
+
+      <div class="sheet-field">
+        <div class="sheet-label">Move history</div>
+        <div class="history-list" id="historyList"></div>
+        <button class="sheet-add-entry" id="addEntry" disabled>Add entry</button>
+      </div>
+
+      <button class="sheet-delete" id="deleteItem" disabled>Delete item</button>
+    </div>
+  </div>
+
 </div>
 <script src="js/db.js"></script>
 <script src="js/app.js"></script>
