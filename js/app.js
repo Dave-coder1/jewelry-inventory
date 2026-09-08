@@ -1,8 +1,8 @@
 // Step 4: Add and delete. The + button creates an item with the lowest free
 // code (§4) and opens it straight into the detail sheet. "Delete item" soft-
-// deletes (sets deletedAt, §12) after a confirm; tapping the count in the
-// All chip opens Recently deleted, where items can be restored or purged.
-// Anything past its 30-day window is purged on app start. See §17.
+// deletes (sets deletedAt, §12) after a confirm; the recycle bin icon opens
+// Recently deleted, where items can be restored or purged. Anything past
+// its 30-day window is purged on app start. See §17.
 //
 // Photo replace/enlarge (§9.1), the status pill's toggle+history write, and
 // history editing/"Add entry" (§8, §17 step 6) are still not wired up —
@@ -129,6 +129,7 @@ const historyListEl = document.getElementById("historyList");
 const deleteItemEl = document.getElementById("deleteItem");
 const addButtonEl = document.getElementById("addButton");
 const allCountEl = document.getElementById("allCount");
+const recentlyDeletedButtonEl = document.getElementById("recentlyDeletedButton");
 const deletedBackdropEl = document.getElementById("deletedBackdrop");
 const deletedSheetEl = document.getElementById("deletedSheet");
 const deletedListEl = document.getElementById("deletedList");
@@ -450,13 +451,8 @@ function closeDeletedList() {
   }
 }
 
-// The count in the All chip is the entry point into Recently deleted; the
-// rest of the chip is reserved for the "select All filter" gesture (§17
-// step 7), so only the count itself opens this overlay.
-allCountEl.addEventListener("click", (e) => {
-  e.stopPropagation();
-  openDeletedList();
-});
+// The recycle bin icon is the only way into Recently deleted.
+recentlyDeletedButtonEl.addEventListener("click", openDeletedList);
 
 deletedDoneEl.addEventListener("click", closeDeletedList);
 deletedBackdropEl.addEventListener("click", closeDeletedList);
