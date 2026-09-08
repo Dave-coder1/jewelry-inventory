@@ -203,6 +203,12 @@ html, body {
   line-height: 1.3;
 }
 
+/* Data rows (not the header row) always show full-strength text color */
+.row:not(.row-header) .cell-type,
+.row:not(.row-header) .cell-note {
+  color: var(--text);
+}
+
 /* ---- Status pill ---- */
 .pill {
   display: inline-flex;
