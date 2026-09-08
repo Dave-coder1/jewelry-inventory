@@ -174,7 +174,7 @@ html, body {
 }
 
 .cell-name {
-  font-size: 16px;
+  font-size: 13px;
   font-weight: 500;
   display: -webkit-box;
   -webkit-line-clamp: 2;
