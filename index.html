@@ -14,10 +14,10 @@
       <input type="text" class="search-input" placeholder="Search" disabled>
     </div>
     <div class="chips">
-      <button class="chip chip-active">All <span class="chip-count">8</span></button>
+      <button class="chip chip-active">All <span class="chip-count" id="allCount">8</span></button>
       <button class="chip">🏦 Bank <span class="chip-count">0</span></button>
       <button class="chip">🏠 Home <span class="chip-count">0</span></button>
-      <button class="fab" disabled>+</button>
+      <button class="fab" id="addButton">+</button>
     </div>
   </header>
 
@@ -50,7 +50,7 @@
 
       <div class="sheet-field">
         <div class="sheet-label">Name</div>
-        <input type="text" class="sheet-input" id="fieldName" maxlength="60">
+        <input type="text" class="sheet-input" id="fieldName" maxlength="60" placeholder="Name">
       </div>
 
       <div class="sheet-field">
@@ -81,8 +81,17 @@
         <button class="sheet-add-entry" id="addEntry" disabled>Add entry</button>
       </div>
 
-      <button class="sheet-delete" id="deleteItem" disabled>Delete item</button>
+      <button class="sheet-delete" id="deleteItem">Delete item</button>
     </div>
+  </div>
+
+  <div class="backdrop" id="deletedBackdrop"></div>
+  <div class="sheet sheet-deleted" id="deletedSheet">
+    <div class="sheet-deleted-header">
+      <div class="sheet-title">Recently deleted</div>
+      <button class="sheet-done" id="deletedDone">Done</button>
+    </div>
+    <div class="sheet-content" id="deletedList"></div>
   </div>
 
 </div>

@@ -455,6 +455,97 @@ html, body {
   opacity: 0.4;
 }
 
+/* The count in the All chip is the entry point into Recently deleted (§12) */
+#allCount {
+  cursor: pointer;
+  padding: 2px 6px;
+  margin: -2px -6px;
+  border-radius: 8px;
+}
+
+/* ---- Recently deleted (§12) ---- */
+.sheet-deleted {
+  height: 70vh;
+}
+
+.sheet-deleted-header {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 16px 12px;
+}
+
+.sheet-deleted-header .sheet-title {
+  padding: 0;
+}
+
+.sheet-done {
+  border: none;
+  background: none;
+  color: var(--tint);
+  font-size: 16px;
+  min-height: 44px;
+  padding: 0 4px;
+}
+
+.deleted-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 0;
+  border-bottom: 0.5px solid var(--separator);
+}
+
+.deleted-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.deleted-name {
+  font-size: 15px;
+  font-weight: 500;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.deleted-meta {
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+
+.deleted-actions {
+  display: flex;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.deleted-restore,
+.deleted-purge {
+  min-height: 36px;
+  padding: 0 12px;
+  border: none;
+  border-radius: 999px;
+  font-size: 13px;
+  background: var(--bg-grouped);
+}
+
+.deleted-restore {
+  color: var(--tint);
+}
+
+.deleted-purge {
+  color: var(--destructive);
+}
+
+.deleted-empty {
+  font-size: 13px;
+  color: var(--text-secondary);
+  padding: 16px 0;
+  text-align: center;
+}
+
 @media (prefers-reduced-motion: reduce) {
   * { transition-duration: 0ms !important; animation-duration: 0ms !important; }
 }

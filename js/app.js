@@ -1,12 +1,12 @@
-// Step 3: Detail sheet. Tapping a row opens a bottom sheet with every field
-// editable in place — no Save button, each field commits on blur (or change,
-// for the select). The Android back button, a downward swipe on the handle,
-// or tapping the backdrop all close it. See JEWELRY-PWA-SPEC.md §9, §17.
+// Step 4: Add and delete. The + button creates an item with the lowest free
+// code (§4) and opens it straight into the detail sheet. "Delete item" soft-
+// deletes (sets deletedAt, §12) after a confirm; tapping the count in the
+// All chip opens Recently deleted, where items can be restored or purged.
+// Anything past its 30-day window is purged on app start. See §17.
 //
-// Photo replace/enlarge (§9.1), the status pill's toggle+history write
-// (§8, §17 step 6), history editing and "Add entry" (§17 step 6), and
-// "Delete item" (§17 step 4) are not wired up yet — those controls render
-// but stay inert (disabled, or simply not clickable) until their step.
+// Photo replace/enlarge (§9.1), the status pill's toggle+history write, and
+// history editing/"Add entry" (§8, §17 step 6) are still not wired up —
+// those controls render but stay inert until their step.
 //
 // No raw IndexedDB calls in this file — everything goes through DB (db.js).
 
@@ -47,6 +47,27 @@ function makeItemFromSeed(seed, position) {
   };
 }
 
+// The lowest code not currently in use — including codes held by items in
+// Recently deleted, which stay reserved until they're restored or purged
+// (§4). Only a fully purged item's code is actually free again.
+function nextAvailableCode(currentItems) {
+  const used = new Set(currentItems.map((it) => it.code));
+  for (let letter = 65; letter <= 90; letter++) {
+    for (let digit = 1; digit <= 9; digit++) {
+      const code = String.fromCharCode(letter) + digit;
+      if (!used.has(code)) return code;
+    }
+  }
+  return null; // all 234 codes taken — not a case the spec expects (§1)
+}
+
+// End of the current sort order among active (non-deleted) items, so a new
+// or restored item lands at the bottom of the list.
+function nextPosition(currentItems) {
+  const positions = currentItems.filter((it) => !it.deletedAt).map((it) => it.position);
+  return positions.length ? Math.max(...positions) + 1 : 1;
+}
+
 // First run only: the `items` store is empty, so there is nothing to show.
 // Seed it with the same 8 fake items step 1 used, now as real records.
 async function seedIfEmpty() {
@@ -85,11 +106,10 @@ function renderRow(item) {
 
 function render() {
   const rowsEl = document.getElementById("rows");
+  const active = items.filter((item) => !item.deletedAt).sort((a, b) => a.position - b.position);
   rowsEl.innerHTML = "";
-  items
-    .filter((item) => !item.deletedAt)
-    .sort((a, b) => a.position - b.position)
-    .forEach((item) => rowsEl.appendChild(renderRow(item)));
+  active.forEach((item) => rowsEl.appendChild(renderRow(item)));
+  allCountEl.textContent = active.length;
 }
 
 // ---- Detail sheet ----
@@ -106,6 +126,13 @@ const fieldCode = document.getElementById("fieldCode");
 const codeErrorEl = document.getElementById("codeError");
 const fieldStatus = document.getElementById("fieldStatus");
 const historyListEl = document.getElementById("historyList");
+const deleteItemEl = document.getElementById("deleteItem");
+const addButtonEl = document.getElementById("addButton");
+const allCountEl = document.getElementById("allCount");
+const deletedBackdropEl = document.getElementById("deletedBackdrop");
+const deletedSheetEl = document.getElementById("deletedSheet");
+const deletedListEl = document.getElementById("deletedList");
+const deletedDoneEl = document.getElementById("deletedDone");
 
 TYPES.forEach((type) => {
   const opt = document.createElement("option");
@@ -220,6 +247,7 @@ function closeSheet() {
 
 window.addEventListener("popstate", () => {
   if (openUid) hideSheet();
+  if (deletedSheetEl.classList.contains("open")) hideDeletedList();
 });
 
 backdropEl.addEventListener("click", closeSheet);
@@ -275,9 +303,9 @@ fieldCode.addEventListener("blur", async () => {
     return;
   }
 
-  const conflict = items.find(
-    (it) => it.uid !== item.uid && !it.deletedAt && it.code === value
-  );
+  // Deleted-but-not-purged items still reserve their code (§4), so they
+  // count as a conflict too, same as nextAvailableCode() treats them.
+  const conflict = items.find((it) => it.uid !== item.uid && it.code === value);
   if (!value || conflict) {
     codeErrorEl.textContent = conflict
       ? `Code ${value} is already used by "${conflict.name}".`
@@ -292,6 +320,146 @@ fieldCode.addEventListener("blur", async () => {
   await persist(item);
   sheetTitleEl.textContent = item.code;
 });
+
+// ---- delete (§12) ----
+
+deleteItemEl.addEventListener("click", async () => {
+  const item = findItem(openUid);
+  if (!item) return;
+
+  const label = item.name || "this item";
+  const ok = confirm(`Delete "${label}"? It moves to Recently deleted for 30 days.`);
+  if (!ok) return;
+
+  item.deletedAt = new Date().toISOString();
+  await persist(item);
+  closeSheet();
+});
+
+// ---- add (§4) ----
+
+addButtonEl.addEventListener("click", async () => {
+  const code = nextAvailableCode(items);
+  if (!code) return; // all 234 codes taken — see nextAvailableCode()
+
+  const now = new Date();
+  const status = "home"; // no default is specified by the spec; a newly
+                          // added item is most likely still on hand, not
+                          // yet placed in the bank
+  const item = {
+    uid: crypto.randomUUID(),
+    code,
+    position: nextPosition(items),
+    name: "",
+    type: TYPES[6], // "այլ" — the default for a new item (§5)
+    note: "",
+    status,
+    photo1Thumb: null,
+    photo1Full: null,
+    photo2Thumb: null,
+    photo2Full: null,
+    history: [{ id: crypto.randomUUID(), to: status, date: now.toISOString().slice(0, 10) }],
+    createdAt: now.toISOString(),
+    deletedAt: null,
+  };
+
+  await DB.putItem(item);
+  items.push(item);
+  render();
+  openSheet(item.uid);
+  fieldName.focus();
+});
+
+// ---- Recently deleted (§12) ----
+
+function daysLeft(deletedAtIso) {
+  const msLeft = new Date(deletedAtIso).getTime() + 30 * 24 * 60 * 60 * 1000 - Date.now();
+  return Math.max(0, Math.ceil(msLeft / (24 * 60 * 60 * 1000)));
+}
+
+function renderDeletedList() {
+  const deleted = items
+    .filter((item) => item.deletedAt)
+    .sort((a, b) => new Date(b.deletedAt) - new Date(a.deletedAt));
+
+  deletedListEl.innerHTML = "";
+
+  if (deleted.length === 0) {
+    deletedListEl.innerHTML = `<div class="deleted-empty">Nothing here.</div>`;
+    return;
+  }
+
+  deleted.forEach((item) => {
+    const left = daysLeft(item.deletedAt);
+    const row = document.createElement("div");
+    row.className = "deleted-row";
+    row.innerHTML = `
+      <div class="deleted-info">
+        <div class="deleted-name">${item.name || "(unnamed)"} · ${item.code}</div>
+        <div class="deleted-meta">${left} day${left === 1 ? "" : "s"} left</div>
+      </div>
+      <div class="deleted-actions">
+        <button class="deleted-restore" data-action="restore" data-uid="${item.uid}">Restore</button>
+        <button class="deleted-purge" data-action="purge" data-uid="${item.uid}">Delete permanently</button>
+      </div>
+    `;
+    deletedListEl.appendChild(row);
+  });
+}
+
+deletedListEl.addEventListener("click", async (e) => {
+  const btn = e.target.closest("button[data-action]");
+  if (!btn) return;
+  const uid = btn.dataset.uid;
+  const item = findItem(uid);
+  if (!item) return;
+
+  if (btn.dataset.action === "restore") {
+    // Original code, unless something else has taken it in the meantime (§12)
+    const codeTaken = items.some((it) => it.uid !== uid && !it.deletedAt && it.code === item.code);
+    if (codeTaken) item.code = nextAvailableCode(items.filter((it) => it.uid !== uid));
+    item.position = nextPosition(items);
+    item.deletedAt = null;
+    await persist(item);
+    renderDeletedList();
+  } else if (btn.dataset.action === "purge") {
+    await DB.deleteItem(uid);
+    items = items.filter((it) => it.uid !== uid);
+    renderDeletedList();
+  }
+});
+
+function openDeletedList() {
+  renderDeletedList();
+  deletedBackdropEl.classList.add("open");
+  deletedSheetEl.classList.add("open");
+  history.pushState({ deletedOpen: true }, "");
+}
+
+function hideDeletedList() {
+  deletedBackdropEl.classList.remove("open");
+  deletedSheetEl.classList.remove("open");
+}
+
+function closeDeletedList() {
+  if (!deletedSheetEl.classList.contains("open")) return;
+  if (history.state && history.state.deletedOpen) {
+    history.back();
+  } else {
+    hideDeletedList();
+  }
+}
+
+// The count in the All chip is the entry point into Recently deleted; the
+// rest of the chip is reserved for the "select All filter" gesture (§17
+// step 7), so only the count itself opens this overlay.
+allCountEl.addEventListener("click", (e) => {
+  e.stopPropagation();
+  openDeletedList();
+});
+
+deletedDoneEl.addEventListener("click", closeDeletedList);
+deletedBackdropEl.addEventListener("click", closeDeletedList);
 
 // ---- drag the handle down to dismiss ----
 
@@ -327,8 +495,24 @@ sheetDragEl.addEventListener("pointercancel", endDrag);
 
 // ---- boot ----
 
+// Anything that's been in Recently deleted for more than 30 days is gone
+// for good, checked once on every app start (§12).
+async function purgeExpired(loadedItems) {
+  const cutoff = Date.now() - 30 * 24 * 60 * 60 * 1000;
+  const kept = [];
+  for (const item of loadedItems) {
+    if (item.deletedAt && new Date(item.deletedAt).getTime() < cutoff) {
+      await DB.deleteItem(item.uid);
+    } else {
+      kept.push(item);
+    }
+  }
+  return kept;
+}
+
 async function init() {
-  items = await seedIfEmpty();
+  const loaded = await seedIfEmpty();
+  items = await purgeExpired(loaded);
   render();
 }
 
