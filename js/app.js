@@ -20,9 +20,7 @@
 //
 // Step 7: Search and filters. `searchQuery` and `activeFilter` (§11) are
 // applied together (AND) in render() to decide which items are visible —
-// nothing else needs to know about them. Note for step 9 (reorder): §11
-// says reordering must be disabled whenever either is active, which
-// isn't wired up yet since long-press-drag doesn't exist yet.
+// nothing else needs to know about them.
 //
 // Step 8: Backup and restore. The overflow menu ("⋮", top right) offers
 // Back up / Restore from file. Backup.js (js/backup.js) turns items into a
@@ -30,6 +28,11 @@
 // and the UI around that: a progress card while photos are being encoded/
 // decoded, navigator.share() with a download-link fallback, and the
 // dismissible "you haven't backed up in a while" bar (§13).
+//
+// Step 9: Reorder. Long-press 200ms then drag vertically to move a row,
+// via Pointer Events (§8) — disabled while search/filter is active, since
+// the visible order isn't the real order then (§11). See the "Reorder"
+// section below for the whole gesture.
 //
 // No raw IndexedDB calls in this file — everything goes through DB (db.js).
 
@@ -106,6 +109,8 @@ async function seedIfEmpty() {
   return seeded;
 }
 
+const rowsEl = document.getElementById("rows");
+
 // Object URLs created for row thumbnails, so they can all be revoked before
 // the next render replaces the rows that hold them (§3: "call
 // URL.revokeObjectURL() when the element is removed" — every render() call
@@ -179,7 +184,6 @@ function itemMatchesSearch(item, query) {
 }
 
 function render() {
-  const rowsEl = document.getElementById("rows");
   rowObjectUrls.forEach((url) => URL.revokeObjectURL(url));
   rowObjectUrls = [];
 
@@ -1237,7 +1241,18 @@ backdropEl.addEventListener("click", closeSheet);
 // place, or a thumbnail, which opens the photo viewer instead — but only if
 // that slot actually has a photo (§8: "Tap either thumbnail | Open photo
 // viewer").
-document.getElementById("rows").addEventListener("click", async (e) => {
+rowsEl.addEventListener("click", async (e) => {
+  // A long-press-drag (§8, step 9) ends with a pointerup, which mobile
+  // browsers usually don't turn into a synthetic click after real
+  // movement — but a "hold, then let go without moving" drag can still
+  // produce one. endDrag() sets this whenever a drag genuinely engaged,
+  // regardless of whether the row actually moved, so it's never
+  // mistaken for the plain tap that opens the sheet.
+  if (suppressNextRowClick) {
+    suppressNextRowClick = false;
+    return;
+  }
+
   const pill = e.target.closest(".pill");
   if (pill) {
     e.stopPropagation(); // §8: must not also open the sheet
@@ -1501,6 +1516,270 @@ function endDrag() {
 
 sheetDragEl.addEventListener("pointerup", endDrag);
 sheetDragEl.addEventListener("pointercancel", endDrag);
+
+// ---- Reorder (§8, step 9) ----
+//
+// Pointer Events only — no HTML5 drag-and-drop, which is unreliable on
+// Android (§8). The gesture: pointerdown starts a 200ms timer; if the
+// pointer moves more than 8px first, it's a scroll, not a long-press, so
+// the timer is cancelled. If it fires, the row lifts (scaled, shadowed,
+// a short buzz) and tracks the pointer's Y position, shifting the other
+// rows to open a gap at wherever the lifted row would land. On release,
+// `position` (a float — see §4) is recomputed from the row's new
+// neighbours; `code` is never touched.
+//
+// Disabled whenever search/filter is active (§11): the row's on-screen
+// place is a filtered subset then, not the real order, so a drop would
+// mean something different from what it looks like.
+//
+// Known minor limitation: putting a `transform` on the dragged row (for
+// the lift/scale) makes it the containing block for its own sticky code
+// column (.cell-code), which un-pins that one cell from the left edge for
+// the drag's duration if the table happens to be scrolled right at the
+// time. Reordering is normally done from the left-scrolled view, so this
+// is an acceptable trade-off rather than restructuring the row's DOM to
+// avoid it.
+
+const TOAST_MS = 1800;
+const REORDER_LONG_PRESS_MS = 200;
+const REORDER_MOVE_CANCEL_PX = 8;
+const AUTO_SCROLL_EDGE_PX = 60;
+const AUTO_SCROLL_SPEED_PX = 12;
+
+const toastEl = document.getElementById("toast");
+let toastTimer = null;
+
+function showToast(message) {
+  toastEl.textContent = message;
+  toastEl.classList.add("show");
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => toastEl.classList.remove("show"), TOAST_MS);
+}
+
+function canReorder() {
+  return activeFilter === "all" && searchQuery === "";
+}
+
+let rowPressTimer = null;
+let rowPressStart = null; // { x, y, pointerId, rowEl, uid }
+let rowDragState = null; // set only once a long-press has actually lifted a row
+let suppressNextRowClick = false;
+let autoScrollDirection = 0; // -1 up, 0 none, 1 down
+let autoScrollRAF = null;
+
+rowsEl.addEventListener("pointerdown", (e) => {
+  // Same exclusions as the tap-to-open-sheet handler — the pill and
+  // thumbnails already own this pointer for their own gestures.
+  if (e.target.closest(".pill") || e.target.closest(".thumb")) return;
+  const rowEl = e.target.closest(".row");
+  if (!rowEl || !rowEl.dataset.uid) return;
+
+  rowPressStart = { x: e.clientX, y: e.clientY, pointerId: e.pointerId, rowEl, uid: rowEl.dataset.uid };
+  rowPressTimer = setTimeout(() => {
+    rowPressTimer = null;
+    if (!rowPressStart) return;
+    if (!canReorder()) {
+      showToast("Clear the filter to reorder.");
+      rowPressStart = null;
+      return;
+    }
+    beginRowDrag();
+  }, REORDER_LONG_PRESS_MS);
+});
+
+rowsEl.addEventListener("pointermove", (e) => {
+  if (!rowPressStart || rowPressStart.pointerId !== e.pointerId) return;
+
+  if (!rowDragState) {
+    // Still waiting out the long-press timer — cancel it on real movement
+    // so horizontal (and vertical) scrolling keeps working undisturbed.
+    const dx = Math.abs(e.clientX - rowPressStart.x);
+    const dy = Math.abs(e.clientY - rowPressStart.y);
+    if (dx > REORDER_MOVE_CANCEL_PX || dy > REORDER_MOVE_CANCEL_PX) {
+      clearTimeout(rowPressTimer);
+      rowPressTimer = null;
+      rowPressStart = null;
+    }
+    return;
+  }
+
+  updateRowDrag(e);
+});
+
+function beginRowDrag() {
+  const { rowEl, pointerId, y, uid } = rowPressStart;
+  rowEl.setPointerCapture(pointerId);
+  rowEl.style.touchAction = "none";
+  rowEl.classList.add("row-dragging");
+  rowEl.style.transform = "scale(0.97)"; // applied here, not left for the first pointermove (§8 step 2)
+  if (navigator.vibrate) navigator.vibrate(15);
+
+  const rowsList = [...rowsEl.querySelectorAll(".row")];
+  const fromIndex = rowsList.indexOf(rowEl);
+
+  rowDragState = {
+    rowEl,
+    pointerId,
+    uid,
+    startY: y,
+    rowHeight: rowEl.getBoundingClientRect().height,
+    rowsList,
+    fromIndex,
+    targetIndex: fromIndex,
+  };
+}
+
+function updateRowDrag(e) {
+  const state = rowDragState;
+  const dy = e.clientY - state.startY;
+  state.rowEl.style.transform = `translateY(${dy}px) scale(0.97)`;
+
+  const offsetRows = Math.round(dy / state.rowHeight);
+  const targetIndex = Math.max(0, Math.min(state.rowsList.length - 1, state.fromIndex + offsetRows));
+  if (targetIndex !== state.targetIndex) {
+    state.targetIndex = targetIndex;
+    applyRowGapShift();
+  }
+
+  autoScrollIfNeeded(e.clientY);
+}
+
+// Every other row shifts by exactly 1 row-height, in whichever direction
+// opens a gap at the target slot and closes the one the dragged row left.
+function applyRowGapShift() {
+  const { rowsList, rowEl, fromIndex, targetIndex, rowHeight } = rowDragState;
+  rowsList.forEach((row, i) => {
+    if (row === rowEl) return;
+    let shift = 0;
+    if (fromIndex < targetIndex && i > fromIndex && i <= targetIndex) {
+      shift = -rowHeight;
+    } else if (fromIndex > targetIndex && i >= targetIndex && i < fromIndex) {
+      shift = rowHeight;
+    }
+    row.style.transform = shift ? `translateY(${shift}px)` : "";
+  });
+}
+
+function autoScrollIfNeeded(clientY) {
+  if (clientY < AUTO_SCROLL_EDGE_PX) {
+    autoScrollDirection = -1;
+  } else if (clientY > window.innerHeight - AUTO_SCROLL_EDGE_PX) {
+    autoScrollDirection = 1;
+  } else {
+    autoScrollDirection = 0;
+  }
+
+  if (autoScrollDirection !== 0 && autoScrollRAF === null) {
+    autoScrollTick();
+  }
+}
+
+function autoScrollTick() {
+  if (!rowDragState || autoScrollDirection === 0) {
+    autoScrollRAF = null;
+    return;
+  }
+  window.scrollBy(0, autoScrollDirection * AUTO_SCROLL_SPEED_PX);
+  autoScrollRAF = requestAnimationFrame(autoScrollTick);
+}
+
+function stopAutoScroll() {
+  autoScrollDirection = 0;
+  if (autoScrollRAF !== null) {
+    cancelAnimationFrame(autoScrollRAF);
+    autoScrollRAF = null;
+  }
+}
+
+function endRowDrag() {
+  if (!rowDragState) {
+    clearTimeout(rowPressTimer);
+    rowPressTimer = null;
+    rowPressStart = null;
+    return;
+  }
+
+  const state = rowDragState;
+  suppressNextRowClick = true; // this was a drag, however small — never also open the sheet
+  stopAutoScroll();
+
+  try {
+    state.rowEl.releasePointerCapture(state.pointerId);
+  } catch (err) {
+    // already released (e.g. by a pointercancel) — nothing to do
+  }
+  state.rowEl.style.touchAction = "";
+
+  // Animate the lifted row the rest of the way into its slot, then commit
+  // the data change and let the next render() lay everything out fresh.
+  const finalOffset = (state.targetIndex - state.fromIndex) * state.rowHeight;
+  state.rowEl.style.transition = "transform 200ms";
+  state.rowEl.style.transform = `translateY(${finalOffset}px) scale(1)`;
+
+  setTimeout(async () => {
+    state.rowEl.classList.remove("row-dragging");
+    state.rowEl.style.transition = "";
+    state.rowEl.style.transform = "";
+    state.rowsList.forEach((row) => {
+      row.style.transform = "";
+    });
+
+    if (state.targetIndex !== state.fromIndex) {
+      await commitReorder(state.uid, state.rowsList, state.fromIndex, state.targetIndex);
+    }
+  }, 200);
+
+  rowDragState = null;
+  rowPressStart = null;
+}
+
+rowsEl.addEventListener("pointerup", endRowDrag);
+rowsEl.addEventListener("pointercancel", endRowDrag);
+
+// New position sits between the item's new neighbours (§4: "drop an item
+// between neighbours at 3.0 and 4.0, set it to 3.5"); `code` is never
+// touched. Renormalizes the whole list to clean whole numbers only if 2
+// positions have converged within 0.0001 of each other.
+async function commitReorder(uid, rowsList, fromIndex, targetIndex) {
+  const item = findItem(uid);
+  if (!item) return;
+
+  const uids = rowsList.map((row) => row.dataset.uid);
+  uids.splice(fromIndex, 1);
+  uids.splice(targetIndex, 0, uid);
+  const newIndex = uids.indexOf(uid);
+
+  const beforeItem = newIndex > 0 ? findItem(uids[newIndex - 1]) : null;
+  const afterItem = newIndex < uids.length - 1 ? findItem(uids[newIndex + 1]) : null;
+
+  if (beforeItem && afterItem && Math.abs(afterItem.position - beforeItem.position) < 0.0001) {
+    await renormalizePositions(uids);
+    return;
+  }
+
+  if (beforeItem && afterItem) {
+    item.position = (beforeItem.position + afterItem.position) / 2;
+  } else if (beforeItem) {
+    item.position = beforeItem.position + 1;
+  } else if (afterItem) {
+    item.position = afterItem.position - 1;
+  } else {
+    item.position = 1; // only item in the list
+  }
+
+  await persist(item);
+}
+
+async function renormalizePositions(orderedUids) {
+  orderedUids.forEach((uid, i) => {
+    const item = findItem(uid);
+    if (item) item.position = i + 1;
+  });
+  for (const uid of orderedUids) {
+    await DB.putItem(findItem(uid));
+  }
+  render();
+}
 
 // ---- boot ----
 
