@@ -175,6 +175,13 @@ html, body {
   font-size: 22px;
 }
 
+.thumb-img {
+  width: 100%;
+  height: 100%;
+  border-radius: inherit;
+  object-fit: cover;
+}
+
 .cell-name {
   font-size: 13px;
   font-weight: 500;
@@ -323,6 +330,7 @@ html, body {
 }
 
 .sheet-photo {
+  position: relative;
   width: 150px;
   height: 150px;
   border-radius: 14px;
@@ -332,6 +340,37 @@ html, body {
   align-items: center;
   justify-content: center;
   font-size: 40px;
+  overflow: hidden;
+  touch-action: none; /* this element owns tap/long-press, not scrolling */
+}
+
+.sheet-photo-img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.sheet-photo-spinner {
+  position: absolute;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.35);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.sheet-photo-spinner::after {
+  content: "";
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  border: 3px solid rgba(255, 255, 255, 0.4);
+  border-top-color: #FFFFFF;
+  animation: spin 800ms linear infinite;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
 }
 
 .sheet-field {
@@ -546,6 +585,82 @@ html, body {
   color: var(--text-secondary);
   padding: 16px 0;
   text-align: center;
+}
+
+/* ---- Photo replace/remove action sheet (§9) ---- */
+/* This backdrop sits on top of the detail sheet (z-index 31), not behind
+   it like the other 2 backdrops that dim the plain list. */
+#photoActionBackdrop {
+  z-index: 40;
+}
+
+.action-sheet {
+  position: fixed;
+  left: 12px;
+  right: 12px;
+  bottom: calc(12px + env(safe-area-inset-bottom));
+  background: var(--bg);
+  border-radius: 14px;
+  overflow: hidden;
+  transform: translateY(calc(100% + 12px));
+  transition: transform 300ms cubic-bezier(.32, .72, 0, 1);
+  z-index: 41;
+}
+
+.action-sheet.open {
+  transform: translateY(0);
+}
+
+.action-sheet-btn {
+  display: block;
+  width: 100%;
+  min-height: 52px;
+  border: none;
+  background: none;
+  color: var(--tint);
+  font-size: 17px;
+  border-bottom: 0.5px solid var(--separator);
+}
+
+.action-sheet-btn:last-child {
+  border-bottom: none;
+}
+
+.action-sheet-destructive {
+  color: var(--destructive);
+}
+
+.action-sheet-cancel {
+  font-weight: 600;
+  margin-top: 8px;
+}
+
+/* ---- Full-screen photo viewer (§10) ---- */
+.photo-viewer {
+  position: fixed;
+  inset: 0;
+  background: #000000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 0;
+  pointer-events: none;
+  z-index: 50;
+  touch-action: none;
+  transition: opacity 200ms;
+}
+
+.photo-viewer.open {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.photo-viewer-img {
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+  transition: transform 200ms;
+  will-change: transform;
 }
 
 @media (prefers-reduced-motion: reduce) {

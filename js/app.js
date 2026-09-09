@@ -4,9 +4,15 @@
 // Recently deleted, where items can be restored or purged. Anything past
 // its 30-day window is purged on app start. See §17.
 //
-// Photo replace/enlarge (§9.1), the status pill's toggle+history write, and
-// history editing/"Add entry" (§8, §17 step 6) are still not wired up —
-// those controls render but stay inert until their step.
+// Step 5: Photos. Tapping an empty sheet photo opens the file picker;
+// picking a file runs it through Photos.processPhoto() (js/photos.js) and
+// stores the resulting thumb+full blobs. Tapping a filled thumbnail (list
+// or sheet) opens the full-screen viewer; long-pressing a filled sheet
+// photo offers Replace/Remove. See §10.
+//
+// The status pill's toggle+history write, and history editing/"Add entry"
+// (§8, §17 step 6) are still not wired up — those controls render but stay
+// inert until their step.
 //
 // No raw IndexedDB calls in this file — everything goes through DB (db.js).
 
@@ -83,6 +89,19 @@ async function seedIfEmpty() {
   return seeded;
 }
 
+// Object URLs created for row thumbnails, so they can all be revoked before
+// the next render replaces the rows that hold them (§3: "call
+// URL.revokeObjectURL() when the element is removed" — every render() call
+// removes every row, so every render() call revokes every row URL first).
+let rowObjectUrls = [];
+
+function thumbContent(blob) {
+  if (!blob) return null;
+  const url = URL.createObjectURL(blob);
+  rowObjectUrls.push(url);
+  return `<img class="thumb-img" src="${url}" alt="">`;
+}
+
 function renderRow(item) {
   const row = document.createElement("div");
   row.className = "row";
@@ -90,14 +109,16 @@ function renderRow(item) {
 
   const pillClass = item.status === "bank" ? "pill-bank" : "pill-home";
   const pillIcon = item.status === "bank" ? "🏦" : "🏠";
+  const photo1 = thumbContent(item.photo1Thumb) || "📷";
+  const photo2 = thumbContent(item.photo2Thumb) || "📦";
 
   row.innerHTML = `
     <div class="cell cell-code">${item.code}</div>
-    <div class="cell cell-photo1"><div class="thumb thumb-1">📷</div></div>
+    <div class="cell cell-photo1"><div class="thumb thumb-1" data-slot="photo1">${photo1}</div></div>
     <div class="cell cell-name">${item.name}</div>
     <div class="cell cell-status"><button class="pill ${pillClass}">${pillIcon}</button></div>
     <div class="cell cell-type">${item.type}</div>
-    <div class="cell cell-photo2"><div class="thumb thumb-2">📦</div></div>
+    <div class="cell cell-photo2"><div class="thumb thumb-2" data-slot="photo2">${photo2}</div></div>
     <div class="cell cell-note">${item.note}</div>
   `;
 
@@ -106,6 +127,8 @@ function renderRow(item) {
 
 function render() {
   const rowsEl = document.getElementById("rows");
+  rowObjectUrls.forEach((url) => URL.revokeObjectURL(url));
+  rowObjectUrls = [];
   const active = items.filter((item) => !item.deletedAt).sort((a, b) => a.position - b.position);
   rowsEl.innerHTML = "";
   active.forEach((item) => rowsEl.appendChild(renderRow(item)));
@@ -134,6 +157,18 @@ const deletedBackdropEl = document.getElementById("deletedBackdrop");
 const deletedSheetEl = document.getElementById("deletedSheet");
 const deletedListEl = document.getElementById("deletedList");
 const deletedDoneEl = document.getElementById("deletedDone");
+const sheetPhotoEls = {
+  photo1: document.getElementById("sheetPhoto1"),
+  photo2: document.getElementById("sheetPhoto2"),
+};
+const photoFileInputEl = document.getElementById("photoFileInput");
+const photoActionBackdropEl = document.getElementById("photoActionBackdrop");
+const photoActionSheetEl = document.getElementById("photoActionSheet");
+const photoReplaceBtnEl = document.getElementById("photoReplaceBtn");
+const photoRemoveBtnEl = document.getElementById("photoRemoveBtn");
+const photoCancelBtnEl = document.getElementById("photoCancelBtn");
+const photoViewerEl = document.getElementById("photoViewer");
+const photoViewerImgEl = document.getElementById("photoViewerImg");
 
 TYPES.forEach((type) => {
   const opt = document.createElement("option");
@@ -204,7 +239,319 @@ function fillSheet(item) {
   fieldStatus.textContent = isBank ? "🏦 Bank" : "🏠 Home";
 
   renderHistory(item);
+  renderSheetPhoto(item, "photo1");
+  renderSheetPhoto(item, "photo2");
 }
+
+// ---- Photos (§10) ----
+//
+// The sheet's 2 photo slots share this logic. Each slot shows the *Thumb
+// blob (320px is plenty at the ~150px sheet size and the list's even
+// smaller thumbnails); the full-screen viewer is the only place the 1400px
+// *Full blob is used.
+
+const sheetPhotoUrls = { photo1: null, photo2: null };
+let pendingPhotoSlot = null; // which slot the file picker was opened for
+let photoLongPressTimer = null;
+let photoLongPressFired = false;
+let photoPressStart = null;
+
+function renderSheetPhoto(item, slot) {
+  const el = sheetPhotoEls[slot];
+  const img = el.querySelector(".sheet-photo-img");
+  const icon = el.querySelector(".sheet-photo-icon");
+
+  if (sheetPhotoUrls[slot]) {
+    URL.revokeObjectURL(sheetPhotoUrls[slot]);
+    sheetPhotoUrls[slot] = null;
+  }
+
+  const blob = item[slot + "Thumb"];
+  if (blob) {
+    sheetPhotoUrls[slot] = URL.createObjectURL(blob);
+    img.src = sheetPhotoUrls[slot];
+    img.hidden = false;
+    icon.hidden = true;
+  } else {
+    img.hidden = true;
+    img.removeAttribute("src");
+    icon.hidden = false;
+  }
+}
+
+function revokeSheetPhotoUrls() {
+  Object.keys(sheetPhotoUrls).forEach((slot) => {
+    if (sheetPhotoUrls[slot]) {
+      URL.revokeObjectURL(sheetPhotoUrls[slot]);
+      sheetPhotoUrls[slot] = null;
+    }
+  });
+}
+
+function showPhotoSpinner(slot, show) {
+  sheetPhotoEls[slot].querySelector(".sheet-photo-spinner").hidden = !show;
+}
+
+function openPhotoPicker(slot) {
+  pendingPhotoSlot = slot;
+  photoFileInputEl.value = ""; // so picking the same file twice still fires "change"
+  photoFileInputEl.click();
+}
+
+photoFileInputEl.addEventListener("change", async () => {
+  const file = photoFileInputEl.files[0];
+  const slot = pendingPhotoSlot;
+  const item = findItem(openUid);
+  if (!file || !slot || !item) return;
+
+  showPhotoSpinner(slot, true);
+  try {
+    const { full, thumb } = await Photos.processPhoto(file);
+    item[slot + "Full"] = full;
+    item[slot + "Thumb"] = thumb;
+    await persist(item);
+    renderSheetPhoto(item, slot);
+  } catch (err) {
+    console.error("Photo processing failed", err);
+    alert("Couldn't use that photo. Please try a different one.");
+  } finally {
+    showPhotoSpinner(slot, false);
+  }
+});
+
+// ---- Replace / Remove action sheet ----
+
+function openPhotoActionSheet(slot) {
+  pendingPhotoSlot = slot;
+  photoActionBackdropEl.classList.add("open");
+  photoActionSheetEl.classList.add("open");
+  history.pushState({ photoActionOpen: true }, "");
+}
+
+function hidePhotoActionSheet() {
+  photoActionBackdropEl.classList.remove("open");
+  photoActionSheetEl.classList.remove("open");
+}
+
+function closePhotoActionSheet() {
+  if (!photoActionSheetEl.classList.contains("open")) return;
+  if (history.state && history.state.photoActionOpen) {
+    history.back();
+  } else {
+    hidePhotoActionSheet();
+  }
+}
+
+photoActionBackdropEl.addEventListener("click", closePhotoActionSheet);
+photoCancelBtnEl.addEventListener("click", closePhotoActionSheet);
+
+photoReplaceBtnEl.addEventListener("click", () => {
+  const slot = pendingPhotoSlot;
+  closePhotoActionSheet();
+  openPhotoPicker(slot);
+});
+
+photoRemoveBtnEl.addEventListener("click", async () => {
+  const slot = pendingPhotoSlot;
+  closePhotoActionSheet();
+  const item = findItem(openUid);
+  if (!item) return;
+  item[slot + "Full"] = null;
+  item[slot + "Thumb"] = null;
+  await persist(item);
+  renderSheetPhoto(item, slot);
+});
+
+// ---- Tap (open picker / viewer) and long-press (Replace/Remove) on a
+// sheet photo slot. Same 200ms-timer-cancelled-by-movement pattern as the
+// row long-press-to-reorder gesture in §8, just simpler since there's no
+// drag to hand off into.
+
+Object.entries(sheetPhotoEls).forEach(([slot, el]) => {
+  el.addEventListener("pointerdown", (e) => {
+    photoLongPressFired = false;
+    photoPressStart = { x: e.clientX, y: e.clientY };
+    photoLongPressTimer = setTimeout(() => {
+      // Only a filled slot has anything to replace/remove — an empty slot
+      // ignores the long hold entirely, so releasing it still falls through
+      // to the tap handler below and opens the picker (photoLongPressFired
+      // must stay false for that to happen).
+      const item = findItem(openUid);
+      if (item && item[slot + "Full"]) {
+        photoLongPressFired = true;
+        openPhotoActionSheet(slot);
+      }
+    }, 500);
+  });
+
+  el.addEventListener("pointermove", (e) => {
+    if (!photoPressStart) return;
+    const dx = Math.abs(e.clientX - photoPressStart.x);
+    const dy = Math.abs(e.clientY - photoPressStart.y);
+    if (dx > 8 || dy > 8) clearTimeout(photoLongPressTimer);
+  });
+
+  const endPress = () => {
+    clearTimeout(photoLongPressTimer);
+    photoPressStart = null;
+  };
+  el.addEventListener("pointerup", () => {
+    const wasLongPress = photoLongPressFired;
+    endPress();
+    if (wasLongPress) return;
+
+    const item = findItem(openUid);
+    if (!item) return;
+    const fullBlob = item[slot + "Full"];
+    if (fullBlob) {
+      openPhotoViewer(fullBlob);
+    } else {
+      openPhotoPicker(slot);
+    }
+  });
+  el.addEventListener("pointercancel", endPress);
+});
+
+// ---- Full-screen photo viewer: pinch to zoom, double-tap to zoom, swipe
+// down or tap outside to close (§10). Plain pointer events, no library —
+// same reasoning as the reorder gesture in §8.
+
+let viewerUrl = null;
+let viewerScale = 1;
+let viewerTranslate = { x: 0, y: 0 };
+const viewerPointers = new Map();
+let viewerPinchStart = null; // { distance, scale }
+let viewerPanStart = null; // dragging while zoomed in
+let viewerCloseDragStart = null; // swipe-down-to-close while at scale 1
+
+function applyViewerTransform() {
+  photoViewerImgEl.style.transform =
+    `translate(${viewerTranslate.x}px, ${viewerTranslate.y}px) scale(${viewerScale})`;
+}
+
+function resetViewerTransform() {
+  viewerScale = 1;
+  viewerTranslate = { x: 0, y: 0 };
+  applyViewerTransform();
+}
+
+function openPhotoViewer(blob) {
+  if (viewerUrl) URL.revokeObjectURL(viewerUrl);
+  viewerUrl = URL.createObjectURL(blob);
+  photoViewerImgEl.src = viewerUrl;
+  resetViewerTransform();
+  photoViewerEl.classList.add("open");
+  history.pushState({ viewerOpen: true }, "");
+}
+
+function hidePhotoViewer() {
+  photoViewerEl.classList.remove("open");
+  photoViewerEl.style.opacity = "";
+  if (viewerUrl) {
+    URL.revokeObjectURL(viewerUrl);
+    viewerUrl = null;
+  }
+  photoViewerImgEl.removeAttribute("src");
+  resetViewerTransform();
+}
+
+function closePhotoViewer() {
+  if (!photoViewerEl.classList.contains("open")) return;
+  if (history.state && history.state.viewerOpen) {
+    history.back();
+  } else {
+    hidePhotoViewer();
+  }
+}
+
+// Tapping the black background (not the image itself) closes the viewer.
+photoViewerEl.addEventListener("click", (e) => {
+  if (e.target === photoViewerEl) closePhotoViewer();
+});
+
+// Double-tap toggles between fit and a fixed zoom level.
+photoViewerImgEl.addEventListener("dblclick", () => {
+  if (viewerScale > 1) {
+    resetViewerTransform();
+  } else {
+    viewerScale = 2.5;
+    applyViewerTransform();
+  }
+});
+
+function viewerPointerDistance() {
+  const pts = [...viewerPointers.values()];
+  return Math.hypot(pts[0].x - pts[1].x, pts[0].y - pts[1].y);
+}
+
+photoViewerEl.addEventListener("pointerdown", (e) => {
+  viewerPointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+  // Follow the finger exactly while a gesture is live; the CSS transition
+  // is only for the double-tap snap and the open/close fade.
+  photoViewerImgEl.style.transition = "none";
+
+  if (viewerPointers.size === 2) {
+    viewerPinchStart = { distance: viewerPointerDistance(), scale: viewerScale };
+    viewerCloseDragStart = null;
+  } else if (viewerPointers.size === 1) {
+    if (viewerScale > 1) {
+      viewerPanStart = {
+        x: e.clientX,
+        y: e.clientY,
+        tx: viewerTranslate.x,
+        ty: viewerTranslate.y,
+      };
+    } else {
+      viewerCloseDragStart = { x: e.clientX, y: e.clientY };
+      photoViewerEl.style.transition = "none";
+    }
+  }
+});
+
+photoViewerEl.addEventListener("pointermove", (e) => {
+  if (!viewerPointers.has(e.pointerId)) return;
+  viewerPointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+
+  if (viewerPointers.size === 2 && viewerPinchStart) {
+    const ratio = viewerPointerDistance() / viewerPinchStart.distance;
+    viewerScale = Math.min(4, Math.max(1, viewerPinchStart.scale * ratio));
+    applyViewerTransform();
+  } else if (viewerPanStart) {
+    viewerTranslate.x = viewerPanStart.tx + (e.clientX - viewerPanStart.x);
+    viewerTranslate.y = viewerPanStart.ty + (e.clientY - viewerPanStart.y);
+    applyViewerTransform();
+  } else if (viewerCloseDragStart) {
+    const dy = e.clientY - viewerCloseDragStart.y;
+    if (dy > 0) {
+      photoViewerImgEl.style.transform = `translateY(${dy}px)`;
+      photoViewerEl.style.opacity = String(Math.max(0.3, 1 - dy / 400));
+    }
+  }
+});
+
+function endViewerPointer(e) {
+  viewerPointers.delete(e.pointerId);
+
+  if (viewerCloseDragStart) {
+    const dy = e.clientY - viewerCloseDragStart.y;
+    photoViewerEl.style.transition = "";
+    if (dy > 100) {
+      closePhotoViewer();
+    } else {
+      applyViewerTransform();
+      photoViewerEl.style.opacity = "";
+    }
+    viewerCloseDragStart = null;
+  }
+
+  viewerPanStart = null;
+  if (viewerPointers.size < 2) viewerPinchStart = null;
+  if (viewerScale <= 1.01) resetViewerTransform();
+  if (viewerPointers.size === 0) photoViewerImgEl.style.transition = "";
+}
+
+photoViewerEl.addEventListener("pointerup", endViewerPointer);
+photoViewerEl.addEventListener("pointercancel", endViewerPointer);
 
 // Persist a field change: write to IndexedDB, update the in-memory mirror,
 // and re-render the (hidden, behind the sheet) list so it's consistent
@@ -231,6 +578,7 @@ function hideSheet() {
   sheetEl.classList.remove("open");
   sheetEl.style.transform = "";
   openUid = null;
+  revokeSheetPhotoUrls();
 }
 
 // Closing always goes through history.back() so the pushState from
@@ -246,17 +594,33 @@ function closeSheet() {
   }
 }
 
+// Overlays can stack (sheet, then a photo opened from it), so back must
+// only close the topmost one. Checked most-recently-opened first.
 window.addEventListener("popstate", () => {
+  if (photoViewerEl.classList.contains("open")) { hidePhotoViewer(); return; }
+  if (photoActionSheetEl.classList.contains("open")) { hidePhotoActionSheet(); return; }
   if (openUid) hideSheet();
   if (deletedSheetEl.classList.contains("open")) hideDeletedList();
 });
 
 backdropEl.addEventListener("click", closeSheet);
 
-// Tap on a row opens the sheet, except on the pill or a thumbnail — those
-// get their own gestures in later steps (§8).
+// Tap on a row opens the sheet, except on the pill (its own toggle gesture,
+// wired up in step 6) or a thumbnail, which opens the photo viewer instead —
+// but only if that slot actually has a photo (§8: "Tap either thumbnail |
+// Open photo viewer").
 document.getElementById("rows").addEventListener("click", (e) => {
-  if (e.target.closest(".pill") || e.target.closest(".thumb")) return;
+  if (e.target.closest(".pill")) return;
+
+  const thumb = e.target.closest(".thumb");
+  if (thumb) {
+    const row = thumb.closest(".row");
+    const item = findItem(row && row.dataset.uid);
+    const fullBlob = item && item[thumb.dataset.slot + "Full"];
+    if (fullBlob) openPhotoViewer(fullBlob);
+    return;
+  }
+
   const row = e.target.closest(".row");
   if (!row || !row.dataset.uid) return;
   openSheet(row.dataset.uid);

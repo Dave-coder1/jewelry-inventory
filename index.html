@@ -46,8 +46,16 @@
     <div class="sheet-title" id="sheetTitle"></div>
     <div class="sheet-content">
       <div class="sheet-photos">
-        <div class="sheet-photo">📷</div>
-        <div class="sheet-photo">📦</div>
+        <div class="sheet-photo" id="sheetPhoto1" data-slot="photo1">
+          <span class="sheet-photo-icon">📷</span>
+          <img class="sheet-photo-img" alt="" hidden>
+          <div class="sheet-photo-spinner" hidden></div>
+        </div>
+        <div class="sheet-photo" id="sheetPhoto2" data-slot="photo2">
+          <span class="sheet-photo-icon">📦</span>
+          <img class="sheet-photo-img" alt="" hidden>
+          <div class="sheet-photo-spinner" hidden></div>
+        </div>
       </div>
 
       <div class="sheet-field">
@@ -96,8 +104,26 @@
     <div class="sheet-content" id="deletedList"></div>
   </div>
 
+  <!-- §9: long-press a sheet photo to replace or remove it -->
+  <div class="backdrop" id="photoActionBackdrop"></div>
+  <div class="action-sheet" id="photoActionSheet">
+    <button class="action-sheet-btn" id="photoReplaceBtn">Replace photo</button>
+    <button class="action-sheet-btn action-sheet-destructive" id="photoRemoveBtn">Remove photo</button>
+    <button class="action-sheet-btn action-sheet-cancel" id="photoCancelBtn">Cancel</button>
+  </div>
+
+  <!-- §10: full-screen photo viewer -->
+  <div class="photo-viewer" id="photoViewer">
+    <img class="photo-viewer-img" id="photoViewerImg" alt="">
+  </div>
+
+  <!-- Shared file picker for both photo slots. No `capture` attribute, so
+       Android offers gallery and camera both (§10). -->
+  <input type="file" accept="image/*" id="photoFileInput" hidden>
+
 </div>
 <script src="js/db.js"></script>
+<script src="js/photos.js"></script>
 <script src="js/app.js"></script>
 </body>
 </html>
