@@ -11,9 +11,6 @@
 <div id="app">
 
   <header class="list-header">
-    <div class="header-top">
-      <button class="icon-button" id="overflowButton" aria-label="More options">⋮</button>
-    </div>
     <div class="search-wrap">
       <input type="text" class="search-input" id="searchInput" placeholder="Search">
       <button class="search-clear" id="searchClear" aria-label="Clear search" hidden>✕</button>
@@ -22,8 +19,7 @@
       <button class="chip chip-active" data-filter="all">All <span class="chip-count" id="allCount">8</span></button>
       <button class="chip" data-filter="bank">🏦 Bank <span class="chip-count" id="bankCount">0</span></button>
       <button class="chip" data-filter="home">🏠 Home <span class="chip-count" id="homeCount">0</span></button>
-      <button class="icon-button" id="recentlyDeletedButton" aria-label="Recently deleted">🗑️</button>
-      <button class="fab" id="addButton">+</button>
+      <button class="icon-button" id="overflowButton" aria-label="More options">⋮</button>
     </div>
     <div class="backup-reminder" id="backupReminder" hidden>
       <span class="backup-reminder-text" id="backupReminderText"></span>
@@ -140,11 +136,22 @@
        Android offers gallery and camera both (§10). -->
   <input type="file" accept="image/*" id="photoFileInput" hidden>
 
-  <!-- §13: the "small overflow menu at the top right" -->
+  <!-- The single "⋮" overflow menu: Add item and Recently deleted moved in
+       here from their own top-bar buttons, alongside Back up / Restore. -->
   <div class="backdrop" id="overflowBackdrop"></div>
   <div class="action-sheet" id="overflowSheet">
-    <button class="action-sheet-btn" id="backupBtn">Back up</button>
-    <button class="action-sheet-btn" id="restoreBtn">Restore from file</button>
+    <button class="action-sheet-btn action-sheet-btn-icon" id="addItemBtn">
+      <span class="action-sheet-icon">+</span> Add item
+    </button>
+    <button class="action-sheet-btn action-sheet-btn-icon" id="recentlyDeletedBtn">
+      <span class="action-sheet-icon">🗑️</span> Recently deleted
+    </button>
+    <button class="action-sheet-btn action-sheet-btn-icon" id="backupBtn">
+      <span class="action-sheet-icon">⬆️</span> Back up
+    </button>
+    <button class="action-sheet-btn action-sheet-btn-icon" id="restoreBtn">
+      <span class="action-sheet-icon">⬇️</span> Restore from file
+    </button>
     <button class="action-sheet-btn action-sheet-cancel" id="overflowCancelBtn">Cancel</button>
   </div>
   <input type="file" accept="application/json,.json" id="restoreFileInput" hidden>

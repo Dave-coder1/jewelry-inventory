@@ -247,11 +247,17 @@ document.querySelectorAll(".chip").forEach((chip) => {
   });
 });
 
-// ---- Backup and restore (§13) ----
+// ---- Overflow menu: Add item, Recently deleted, Back up, Restore ----
+//
+// The single "⋮" button in the chips row. Add item and Recently deleted
+// used to be their own buttons docked in that row; they're just menu
+// entries now, alongside backup/restore (§13).
 
 const overflowButtonEl = document.getElementById("overflowButton");
 const overflowBackdropEl = document.getElementById("overflowBackdrop");
 const overflowSheetEl = document.getElementById("overflowSheet");
+const addItemBtnEl = document.getElementById("addItemBtn");
+const recentlyDeletedBtnEl = document.getElementById("recentlyDeletedBtn");
 const backupBtnEl = document.getElementById("backupBtn");
 const restoreBtnEl = document.getElementById("restoreBtn");
 const overflowCancelBtnEl = document.getElementById("overflowCancelBtn");
@@ -473,7 +479,6 @@ const codeErrorEl = document.getElementById("codeError");
 const fieldStatus = document.getElementById("fieldStatus");
 const historyListEl = document.getElementById("historyList");
 const deleteItemEl = document.getElementById("deleteItem");
-const addButtonEl = document.getElementById("addButton");
 const allCountEl = document.getElementById("allCount");
 const bankCountEl = document.getElementById("bankCount");
 const homeCountEl = document.getElementById("homeCount");
@@ -483,7 +488,6 @@ const historyAddSheetEl = document.getElementById("historyAddSheet");
 const historyToBankBtnEl = document.getElementById("historyToBankBtn");
 const historyToHomeBtnEl = document.getElementById("historyToHomeBtn");
 const historyAddCancelBtnEl = document.getElementById("historyAddCancelBtn");
-const recentlyDeletedButtonEl = document.getElementById("recentlyDeletedButton");
 const deletedBackdropEl = document.getElementById("deletedBackdrop");
 const deletedSheetEl = document.getElementById("deletedSheet");
 const deletedListEl = document.getElementById("deletedList");
@@ -1111,14 +1115,24 @@ async function persist(item) {
   render();
 }
 
-function openSheet(uid) {
+// `replace: true` is for opening straight out of the overflow menu (Add
+// item): folds the sheet's history entry into the overflow menu's own
+// entry instead of stacking a new one on top of it. That matters because
+// closing the menu the normal way (history.back(), see closeOverflowSheet)
+// is asynchronous — pushState()ing a 2nd entry immediately afterwards would
+// race that pending navigation. replaceState() has no such race.
+function openSheet(uid, { replace = false } = {}) {
   const item = findItem(uid);
   if (!item) return;
   openUid = uid;
   fillSheet(item);
   backdropEl.classList.add("open");
   sheetEl.classList.add("open");
-  history.pushState({ sheetOpen: true }, "");
+  if (replace) {
+    history.replaceState({ sheetOpen: true }, "");
+  } else {
+    history.pushState({ sheetOpen: true }, "");
+  }
 }
 
 function hideSheet() {
@@ -1260,7 +1274,11 @@ deleteItemEl.addEventListener("click", async () => {
 
 // ---- add (§4) ----
 
-addButtonEl.addEventListener("click", async () => {
+addItemBtnEl.addEventListener("click", async () => {
+  // Hide directly rather than closeOverflowSheet()'s history.back() — see
+  // openSheet()'s `replace` comment for why the 2 can't be mixed here.
+  hideOverflowSheet();
+
   const code = nextAvailableCode(items);
   if (!code) return; // all 234 codes taken — see nextAvailableCode()
 
@@ -1288,7 +1306,7 @@ addButtonEl.addEventListener("click", async () => {
   await DB.putItem(item);
   items.push(item);
   render();
-  openSheet(item.uid);
+  openSheet(item.uid, { replace: true });
   fieldName.focus();
 });
 
@@ -1351,11 +1369,17 @@ deletedListEl.addEventListener("click", async (e) => {
   }
 });
 
-function openDeletedList() {
+// See openSheet()'s comment on `replace` — same reasoning, for reaching
+// this straight from the overflow menu instead of via its own button.
+function openDeletedList({ replace = false } = {}) {
   renderDeletedList();
   deletedBackdropEl.classList.add("open");
   deletedSheetEl.classList.add("open");
-  history.pushState({ deletedOpen: true }, "");
+  if (replace) {
+    history.replaceState({ deletedOpen: true }, "");
+  } else {
+    history.pushState({ deletedOpen: true }, "");
+  }
 }
 
 function hideDeletedList() {
@@ -1372,8 +1396,12 @@ function closeDeletedList() {
   }
 }
 
-// The recycle bin icon is the only way into Recently deleted.
-recentlyDeletedButtonEl.addEventListener("click", openDeletedList);
+// The overflow menu is the only way into Recently deleted. Same
+// hide-directly-and-replace reasoning as "Add item" above.
+recentlyDeletedBtnEl.addEventListener("click", () => {
+  hideOverflowSheet();
+  openDeletedList({ replace: true });
+});
 
 deletedDoneEl.addEventListener("click", closeDeletedList);
 deletedBackdropEl.addEventListener("click", closeDeletedList);
