@@ -11,15 +11,16 @@
 <div id="app">
 
   <header class="list-header">
-    <div class="search-wrap">
-      <input type="text" class="search-input" id="searchInput" placeholder="Search">
-      <button class="search-clear" id="searchClear" aria-label="Clear search" hidden>✕</button>
-    </div>
-    <div class="chips">
+    <div class="chips" id="chipsRow">
       <button class="chip chip-active" data-filter="all">All <span class="chip-count" id="allCount">8</span></button>
       <button class="chip" data-filter="bank">🏦 Bank <span class="chip-count" id="bankCount">0</span></button>
       <button class="chip" data-filter="home">🏠 Home <span class="chip-count" id="homeCount">0</span></button>
+      <button class="icon-button" id="searchToggleButton" aria-label="Search">🔍</button>
       <button class="icon-button" id="overflowButton" aria-label="More options">⋮</button>
+    </div>
+    <div class="search-wrap" id="searchRow" hidden>
+      <input type="text" class="search-input" id="searchInput" placeholder="Search">
+      <button class="search-close" id="searchCloseButton" aria-label="Close search">✕</button>
     </div>
     <div class="backup-reminder" id="backupReminder" hidden>
       <span class="backup-reminder-text" id="backupReminderText"></span>

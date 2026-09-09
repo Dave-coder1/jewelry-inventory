@@ -148,8 +148,11 @@ function renderRow(item) {
 // search text — they answer "how many total", not "how many showing".
 // Only the row list itself is narrowed by search + filter, combined (AND).
 
+const chipsRowEl = document.getElementById("chipsRow");
+const searchRowEl = document.getElementById("searchRow");
+const searchToggleButtonEl = document.getElementById("searchToggleButton");
 const searchInputEl = document.getElementById("searchInput");
-const searchClearEl = document.getElementById("searchClear");
+const searchCloseButtonEl = document.getElementById("searchCloseButton");
 const emptyStateEl = document.getElementById("emptyState");
 
 let searchQuery = "";
@@ -221,20 +224,80 @@ function hideEmptyState() {
   emptyStateEl.innerHTML = "";
 }
 
+// Used only by the empty-state's own "Clear search" button (§11) — clears
+// the text so a new query can be typed right away, but deliberately leaves
+// the bar expanded (unlike closeSearch() below): the user is still
+// mid-search, just got 0 results, and collapsing here would be an
+// unwanted extra tap to reopen it.
 function clearSearch() {
   searchQuery = "";
   searchInputEl.value = "";
-  searchClearEl.hidden = true;
   render();
+  searchInputEl.focus();
 }
 
 searchInputEl.addEventListener("input", () => {
   searchQuery = searchInputEl.value;
-  searchClearEl.hidden = searchQuery.length === 0;
   render();
 });
 
-searchClearEl.addEventListener("click", clearSearch);
+// ---- Expanding search icon ----
+//
+// Collapsed: chipsRow (chips + 🔍 + ⋮) is shown, searchRow is hidden — 1
+// row total. Expanded: the reverse, and the chips/menu are genuinely
+// unreachable underneath rather than just visually replaced, since
+// they're actually hidden. Wired into the Android back stack like every
+// other overlay in this app (openSheet, the action sheets, etc.).
+
+let searchExpanded = false;
+
+function expandSearch() {
+  searchExpanded = true;
+  chipsRowEl.hidden = true;
+  searchRowEl.hidden = false;
+  searchInputEl.focus(); // opens the keyboard
+  history.pushState({ searchOpen: true }, "");
+}
+
+// Collapsing always clears the query too — otherwise the list would stay
+// silently filtered with the chips back to showing "All", which would be
+// actively misleading (§11's counts wouldn't match what's on screen).
+function hideSearch() {
+  searchExpanded = false;
+  searchRowEl.hidden = true;
+  chipsRowEl.hidden = false;
+  if (searchQuery) {
+    searchQuery = "";
+    searchInputEl.value = "";
+    render();
+  }
+}
+
+function closeSearch() {
+  if (!searchExpanded) return;
+  if (history.state && history.state.searchOpen) {
+    history.back();
+  } else {
+    hideSearch();
+  }
+}
+
+searchToggleButtonEl.addEventListener("click", expandSearch);
+searchCloseButtonEl.addEventListener("click", closeSearch);
+
+// Tapping anywhere outside the expanded bar also closes it. Capturing
+// before the tapped element's own click handler runs lets us swallow that
+// tap entirely, rather than also opening whatever row happened to be
+// underneath it.
+document.addEventListener(
+  "click",
+  (e) => {
+    if (!searchExpanded || searchRowEl.contains(e.target)) return;
+    e.stopPropagation();
+    closeSearch();
+  },
+  true
+);
 
 // Single selection: whichever chip is tapped becomes the only active one.
 document.querySelectorAll(".chip").forEach((chip) => {
@@ -1163,6 +1226,7 @@ window.addEventListener("popstate", () => {
   if (photoActionSheetEl.classList.contains("open")) { hidePhotoActionSheet(); return; }
   if (historyAddSheetEl.classList.contains("open")) { hideHistoryAddSheet(); return; }
   if (overflowSheetEl.classList.contains("open")) { hideOverflowSheet(); return; }
+  if (searchExpanded) { hideSearch(); return; }
   if (openUid) hideSheet();
   if (deletedSheetEl.classList.contains("open")) hideDeletedList();
 });
