@@ -1567,77 +1567,28 @@ let suppressNextRowClick = false;
 let autoScrollDirection = 0; // -1 up, 0 none, 1 down
 let autoScrollRAF = null;
 
-// ---- TEMPORARY DIAGNOSTIC OVERLAY ----
-// Remove this block once the real event sequence on Samsung Internet is
-// known. 2 fixes in a row (touch-callout suppression, then
-// preventDefault() on move) had zero observed effect on the phone, which
-// means the working theory is wrong somewhere, not just the remedy —
-// guessing a 3rd time blind isn't a good use of anyone's time. This shows
-// the actual pointer events as they happen, live, on the phone screen
-// itself, since there's no way to attach devtools to it from here.
-const debugLogEl = document.createElement("div");
-debugLogEl.style.cssText =
-  "position:fixed;top:32px;left:0;right:0;z-index:99999;background:rgba(0,0,0,0.85);" +
-  "color:#0f0;font:11px/1.4 monospace;padding:6px 8px;white-space:pre-wrap;" +
-  "max-height:40vh;overflow-y:auto;pointer-events:none;";
-document.body.appendChild(debugLogEl);
-
-// A full copy of the log, not just what's visible on screen — the on-screen
-// panel only keeps the last 60 lines so it doesn't slow the page down, but
-// this array (and the Copy button below) keep everything from this page
-// load, so nothing is missed by screenshotting at the wrong moment.
-const debugLines = [];
-function debugLog(msg) {
-  debugLines.push(`${performance.now().toFixed(0)}ms ${msg}`);
-  debugLogEl.textContent = debugLines.slice(-60).join("\n");
-  debugLogEl.scrollTop = debugLogEl.scrollHeight;
-}
-
-const debugCopyBtn = document.createElement("button");
-debugCopyBtn.textContent = "Copy full log";
-debugCopyBtn.style.cssText =
-  "position:fixed;top:0;left:0;right:0;z-index:100000;font:12px monospace;" +
-  "padding:6px;border:none;background:#0a0;color:#fff;";
-debugCopyBtn.addEventListener("click", () => {
-  const text = debugLines.join("\n");
-  if (navigator.clipboard && navigator.clipboard.writeText) {
-    navigator.clipboard
-      .writeText(text)
-      .then(() => (debugCopyBtn.textContent = `Copied ${debugLines.length} lines!`))
-      .catch(() => (debugCopyBtn.textContent = "Copy failed — see console"));
-  }
-  console.log(text); // always available as a fallback
-});
-document.body.appendChild(debugCopyBtn);
-// ---- end diagnostic setup ----
-
 // Belt-and-suspenders alongside .row's CSS (user-select/touch-callout:
 // none): if a device still fires its native long-press context menu
 // despite that CSS, this stops it from popping up and stealing the touch
 // out from under an in-progress long-press-to-reorder.
-rowsEl.addEventListener("contextmenu", (e) => {
-  debugLog("contextmenu (prevented)");
-  e.preventDefault();
-});
+rowsEl.addEventListener("contextmenu", (e) => e.preventDefault());
 
-// The previous fix (preventDefault() on the *Pointer* Event, in
-// updateRowDrag) turned out to have zero effect on Samsung Internet: the
-// diagnostic log showed defaultPrevented=true on every move, with dy
-// correctly increasing, right up until pointercancel fired anyway.
-// Pointer Events are built on top of raw Touch Events — the decision to
-// treat this as a native scroll is apparently made at that lower, earlier
-// layer, before our pointer-level preventDefault() ever runs. This is a
-// 2nd, independent guard at that earlier layer: raw touchmove, the older
-// and far more battle-tested mechanism for exactly this. It MUST be
-// registered non-passive — touchmove listeners default to passive:true
-// in most browsers for scroll performance, which would make
-// preventDefault() here silently do nothing, same failure mode again.
+// preventDefault() on the *Pointer* Event alone (in updateRowDrag, below)
+// isn't enough on Samsung Internet: confirmed by a diagnostic build that
+// it kept reclaiming the touch as a native scroll — dy tracking correctly,
+// defaultPrevented=true on every move — right up until pointercancel fired
+// anyway. Pointer Events are synthesized from raw Touch Events, and the
+// decision to hand a touch to native scrolling is apparently made at that
+// earlier, lower layer, before a pointer-level preventDefault() ever runs.
+// This is the fix: a 2nd, independent guard at that earlier layer — raw
+// touchmove, the older and far more battle-tested mechanism for exactly
+// this. It MUST be registered non-passive — touchmove listeners default
+// to passive:true in most browsers for scroll performance, which would
+// make preventDefault() here silently do nothing, the same failure again.
 rowsEl.addEventListener(
   "touchmove",
   (e) => {
-    if (!rowDragState) return; // only suppress scroll while actively dragging
-    debugLog(`touchmove (raw) cancelable=${e.cancelable} -> preventDefault()`);
-    e.preventDefault();
+    if (rowDragState) e.preventDefault(); // only suppress scroll while actively dragging
   },
   { passive: false }
 );
@@ -1649,8 +1600,6 @@ rowsEl.addEventListener("pointerdown", (e) => {
   const rowEl = e.target.closest(".row");
   if (!rowEl || !rowEl.dataset.uid) return;
 
-  debugLog(`pointerdown id=${e.pointerId} type=${e.pointerType} isPrimary=${e.isPrimary}`);
-
   rowPressStart = { x: e.clientX, y: e.clientY, pointerId: e.pointerId, rowEl, uid: rowEl.dataset.uid };
   rowPressTimer = setTimeout(() => {
     rowPressTimer = null;
@@ -1660,16 +1609,12 @@ rowsEl.addEventListener("pointerdown", (e) => {
       rowPressStart = null;
       return;
     }
-    debugLog("long-press fired -> beginRowDrag()");
     beginRowDrag();
   }, REORDER_LONG_PRESS_MS);
 });
 
 rowsEl.addEventListener("pointermove", (e) => {
-  if (!rowPressStart || rowPressStart.pointerId !== e.pointerId) {
-    if (rowPressStart) debugLog(`pointermove IGNORED — id mismatch (start=${rowPressStart.pointerId}, event=${e.pointerId})`);
-    return;
-  }
+  if (!rowPressStart || rowPressStart.pointerId !== e.pointerId) return;
 
   if (!rowDragState) {
     // Still waiting out the long-press timer — cancel it on real movement
@@ -1677,7 +1622,6 @@ rowsEl.addEventListener("pointermove", (e) => {
     const dx = Math.abs(e.clientX - rowPressStart.x);
     const dy = Math.abs(e.clientY - rowPressStart.y);
     if (dx > REORDER_MOVE_CANCEL_PX || dy > REORDER_MOVE_CANCEL_PX) {
-      debugLog(`pointermove pre-lift: moved ${dx.toFixed(0)},${dy.toFixed(0)}px -> cancelling long-press timer`);
       clearTimeout(rowPressTimer);
       rowPressTimer = null;
       rowPressStart = null;
@@ -1690,12 +1634,7 @@ rowsEl.addEventListener("pointermove", (e) => {
 
 function beginRowDrag() {
   const { rowEl, pointerId, y, uid } = rowPressStart;
-  try {
-    rowEl.setPointerCapture(pointerId);
-    debugLog(`setPointerCapture(${pointerId}) OK, hasCapture=${rowEl.hasPointerCapture(pointerId)}`);
-  } catch (err) {
-    debugLog(`setPointerCapture(${pointerId}) THREW: ${err.message}`);
-  }
+  rowEl.setPointerCapture(pointerId);
   rowEl.style.touchAction = "none";
   rowEl.classList.add("row-dragging");
   rowEl.style.transform = "scale(0.97)"; // applied here, not left for the first pointermove (§8 step 2)
@@ -1714,30 +1653,18 @@ function beginRowDrag() {
     fromIndex,
     targetIndex: fromIndex,
   };
-
-  debugLog(`beginRowDrag: startY=${y.toFixed(1)} rowHeight=${rowDragState.rowHeight.toFixed(1)} fromIndex=${fromIndex}`);
 }
 
 function updateRowDrag(e) {
   // touch-action:none was already set on this row when the drag began
   // (beginRowDrag), but changing touch-action mid-gesture is unreliable
-  // across browsers — some devices keep honouring whatever was in effect
-  // back when the touch first started (scrollable), and only recognise
-  // the change on the *next* touch. preventDefault() on every move event,
-  // by contrast, is decided live, per event, so it isn't subject to that
-  // same "locked in at touch-start" behaviour — this is what actually
-  // stops Samsung Internet from reclaiming the gesture as a scroll the
-  // instant real movement starts.
+  // across browsers, and preventDefault() here is a 2nd layer alongside
+  // the raw touchmove guard above — see its comment for why both exist.
   e.preventDefault();
 
   const state = rowDragState;
   const dy = e.clientY - state.startY;
   state.rowEl.style.transform = `translateY(${dy}px) scale(0.97)`;
-
-  debugLog(
-    `move: clientY=${e.clientY.toFixed(1)} startY=${state.startY.toFixed(1)} dy=${dy.toFixed(1)} ` +
-    `cancelable=${e.cancelable} defaultPrevented=${e.defaultPrevented} transform="${state.rowEl.style.transform}"`
-  );
 
   const offsetRows = Math.round(dy / state.rowHeight);
   const targetIndex = Math.max(0, Math.min(state.rowsList.length - 1, state.fromIndex + offsetRows));
@@ -1805,7 +1732,6 @@ function endRowDrag() {
   }
 
   const state = rowDragState;
-  debugLog(`endRowDrag: fromIndex=${state.fromIndex} targetIndex=${state.targetIndex} currentTransform="${state.rowEl.style.transform}"`);
   suppressNextRowClick = true; // this was a drag, however small — never also open the sheet
   stopAutoScroll();
 
@@ -1839,14 +1765,8 @@ function endRowDrag() {
   rowPressStart = null;
 }
 
-rowsEl.addEventListener("pointerup", (e) => {
-  debugLog(`pointerup id=${e.pointerId} dragging=${!!rowDragState} targetIndex=${rowDragState ? rowDragState.targetIndex : "n/a"} fromIndex=${rowDragState ? rowDragState.fromIndex : "n/a"}`);
-  endRowDrag();
-});
-rowsEl.addEventListener("pointercancel", (e) => {
-  debugLog(`pointercancel id=${e.pointerId} dragging=${!!rowDragState}`);
-  endRowDrag();
-});
+rowsEl.addEventListener("pointerup", endRowDrag);
+rowsEl.addEventListener("pointercancel", endRowDrag);
 
 // New position sits between the item's new neighbours (§4: "drop an item
 // between neighbours at 3.0 and 4.0, set it to 3.5"); `code` is never
