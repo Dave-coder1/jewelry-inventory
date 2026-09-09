@@ -1567,11 +1567,36 @@ let suppressNextRowClick = false;
 let autoScrollDirection = 0; // -1 up, 0 none, 1 down
 let autoScrollRAF = null;
 
+// ---- TEMPORARY DIAGNOSTIC OVERLAY ----
+// Remove this block once the real event sequence on Samsung Internet is
+// known. 2 fixes in a row (touch-callout suppression, then
+// preventDefault() on move) had zero observed effect on the phone, which
+// means the working theory is wrong somewhere, not just the remedy —
+// guessing a 3rd time blind isn't a good use of anyone's time. This shows
+// the actual pointer events as they happen, live, on the phone screen
+// itself, since there's no way to attach devtools to it from here.
+const debugLogEl = document.createElement("div");
+debugLogEl.style.cssText =
+  "position:fixed;top:0;left:0;right:0;z-index:99999;background:rgba(0,0,0,0.85);" +
+  "color:#0f0;font:11px/1.4 monospace;padding:6px 8px;white-space:pre-wrap;" +
+  "max-height:40vh;overflow-y:auto;pointer-events:none;";
+document.body.appendChild(debugLogEl);
+const debugLines = [];
+function debugLog(msg) {
+  debugLines.push(`${performance.now().toFixed(0)}ms ${msg}`);
+  if (debugLines.length > 40) debugLines.shift();
+  debugLogEl.textContent = debugLines.join("\n");
+}
+// ---- end diagnostic setup ----
+
 // Belt-and-suspenders alongside .row's CSS (user-select/touch-callout:
 // none): if a device still fires its native long-press context menu
 // despite that CSS, this stops it from popping up and stealing the touch
 // out from under an in-progress long-press-to-reorder.
-rowsEl.addEventListener("contextmenu", (e) => e.preventDefault());
+rowsEl.addEventListener("contextmenu", (e) => {
+  debugLog("contextmenu (prevented)");
+  e.preventDefault();
+});
 
 rowsEl.addEventListener("pointerdown", (e) => {
   // Same exclusions as the tap-to-open-sheet handler — the pill and
@@ -1579,6 +1604,8 @@ rowsEl.addEventListener("pointerdown", (e) => {
   if (e.target.closest(".pill") || e.target.closest(".thumb")) return;
   const rowEl = e.target.closest(".row");
   if (!rowEl || !rowEl.dataset.uid) return;
+
+  debugLog(`pointerdown id=${e.pointerId} type=${e.pointerType} isPrimary=${e.isPrimary}`);
 
   rowPressStart = { x: e.clientX, y: e.clientY, pointerId: e.pointerId, rowEl, uid: rowEl.dataset.uid };
   rowPressTimer = setTimeout(() => {
@@ -1589,12 +1616,16 @@ rowsEl.addEventListener("pointerdown", (e) => {
       rowPressStart = null;
       return;
     }
+    debugLog("long-press fired -> beginRowDrag()");
     beginRowDrag();
   }, REORDER_LONG_PRESS_MS);
 });
 
 rowsEl.addEventListener("pointermove", (e) => {
-  if (!rowPressStart || rowPressStart.pointerId !== e.pointerId) return;
+  if (!rowPressStart || rowPressStart.pointerId !== e.pointerId) {
+    if (rowPressStart) debugLog(`pointermove IGNORED — id mismatch (start=${rowPressStart.pointerId}, event=${e.pointerId})`);
+    return;
+  }
 
   if (!rowDragState) {
     // Still waiting out the long-press timer — cancel it on real movement
@@ -1602,6 +1633,7 @@ rowsEl.addEventListener("pointermove", (e) => {
     const dx = Math.abs(e.clientX - rowPressStart.x);
     const dy = Math.abs(e.clientY - rowPressStart.y);
     if (dx > REORDER_MOVE_CANCEL_PX || dy > REORDER_MOVE_CANCEL_PX) {
+      debugLog(`pointermove pre-lift: moved ${dx.toFixed(0)},${dy.toFixed(0)}px -> cancelling long-press timer`);
       clearTimeout(rowPressTimer);
       rowPressTimer = null;
       rowPressStart = null;
@@ -1609,12 +1641,19 @@ rowsEl.addEventListener("pointermove", (e) => {
     return;
   }
 
+  debugLog(`pointermove DRAGGING id=${e.pointerId} y=${e.clientY.toFixed(0)} cancelable=${e.cancelable}`);
   updateRowDrag(e);
+  debugLog(`  after preventDefault(): defaultPrevented=${e.defaultPrevented}`);
 });
 
 function beginRowDrag() {
   const { rowEl, pointerId, y, uid } = rowPressStart;
-  rowEl.setPointerCapture(pointerId);
+  try {
+    rowEl.setPointerCapture(pointerId);
+    debugLog(`setPointerCapture(${pointerId}) OK, hasCapture=${rowEl.hasPointerCapture(pointerId)}`);
+  } catch (err) {
+    debugLog(`setPointerCapture(${pointerId}) THREW: ${err.message}`);
+  }
   rowEl.style.touchAction = "none";
   rowEl.classList.add("row-dragging");
   rowEl.style.transform = "scale(0.97)"; // applied here, not left for the first pointermove (§8 step 2)
@@ -1750,8 +1789,14 @@ function endRowDrag() {
   rowPressStart = null;
 }
 
-rowsEl.addEventListener("pointerup", endRowDrag);
-rowsEl.addEventListener("pointercancel", endRowDrag);
+rowsEl.addEventListener("pointerup", (e) => {
+  debugLog(`pointerup id=${e.pointerId} dragging=${!!rowDragState} targetIndex=${rowDragState ? rowDragState.targetIndex : "n/a"} fromIndex=${rowDragState ? rowDragState.fromIndex : "n/a"}`);
+  endRowDrag();
+});
+rowsEl.addEventListener("pointercancel", (e) => {
+  debugLog(`pointercancel id=${e.pointerId} dragging=${!!rowDragState}`);
+  endRowDrag();
+});
 
 // New position sits between the item's new neighbours (§4: "drop an item
 // between neighbours at 3.0 and 4.0, set it to 3.5"); `code` is never
