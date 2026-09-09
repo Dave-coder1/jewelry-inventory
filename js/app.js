@@ -1577,16 +1577,38 @@ let autoScrollRAF = null;
 // itself, since there's no way to attach devtools to it from here.
 const debugLogEl = document.createElement("div");
 debugLogEl.style.cssText =
-  "position:fixed;top:0;left:0;right:0;z-index:99999;background:rgba(0,0,0,0.85);" +
+  "position:fixed;top:32px;left:0;right:0;z-index:99999;background:rgba(0,0,0,0.85);" +
   "color:#0f0;font:11px/1.4 monospace;padding:6px 8px;white-space:pre-wrap;" +
   "max-height:40vh;overflow-y:auto;pointer-events:none;";
 document.body.appendChild(debugLogEl);
+
+// A full copy of the log, not just what's visible on screen — the on-screen
+// panel only keeps the last 60 lines so it doesn't slow the page down, but
+// this array (and the Copy button below) keep everything from this page
+// load, so nothing is missed by screenshotting at the wrong moment.
 const debugLines = [];
 function debugLog(msg) {
   debugLines.push(`${performance.now().toFixed(0)}ms ${msg}`);
-  if (debugLines.length > 40) debugLines.shift();
-  debugLogEl.textContent = debugLines.join("\n");
+  debugLogEl.textContent = debugLines.slice(-60).join("\n");
+  debugLogEl.scrollTop = debugLogEl.scrollHeight;
 }
+
+const debugCopyBtn = document.createElement("button");
+debugCopyBtn.textContent = "Copy full log";
+debugCopyBtn.style.cssText =
+  "position:fixed;top:0;left:0;right:0;z-index:100000;font:12px monospace;" +
+  "padding:6px;border:none;background:#0a0;color:#fff;";
+debugCopyBtn.addEventListener("click", () => {
+  const text = debugLines.join("\n");
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard
+      .writeText(text)
+      .then(() => (debugCopyBtn.textContent = `Copied ${debugLines.length} lines!`))
+      .catch(() => (debugCopyBtn.textContent = "Copy failed — see console"));
+  }
+  console.log(text); // always available as a fallback
+});
+document.body.appendChild(debugCopyBtn);
 // ---- end diagnostic setup ----
 
 // Belt-and-suspenders alongside .row's CSS (user-select/touch-callout:
@@ -1641,9 +1663,7 @@ rowsEl.addEventListener("pointermove", (e) => {
     return;
   }
 
-  debugLog(`pointermove DRAGGING id=${e.pointerId} y=${e.clientY.toFixed(0)} cancelable=${e.cancelable}`);
   updateRowDrag(e);
-  debugLog(`  after preventDefault(): defaultPrevented=${e.defaultPrevented}`);
 });
 
 function beginRowDrag() {
@@ -1672,6 +1692,8 @@ function beginRowDrag() {
     fromIndex,
     targetIndex: fromIndex,
   };
+
+  debugLog(`beginRowDrag: startY=${y.toFixed(1)} rowHeight=${rowDragState.rowHeight.toFixed(1)} fromIndex=${fromIndex}`);
 }
 
 function updateRowDrag(e) {
@@ -1689,6 +1711,11 @@ function updateRowDrag(e) {
   const state = rowDragState;
   const dy = e.clientY - state.startY;
   state.rowEl.style.transform = `translateY(${dy}px) scale(0.97)`;
+
+  debugLog(
+    `move: clientY=${e.clientY.toFixed(1)} startY=${state.startY.toFixed(1)} dy=${dy.toFixed(1)} ` +
+    `cancelable=${e.cancelable} defaultPrevented=${e.defaultPrevented} transform="${state.rowEl.style.transform}"`
+  );
 
   const offsetRows = Math.round(dy / state.rowHeight);
   const targetIndex = Math.max(0, Math.min(state.rowsList.length - 1, state.fromIndex + offsetRows));
@@ -1756,6 +1783,7 @@ function endRowDrag() {
   }
 
   const state = rowDragState;
+  debugLog(`endRowDrag: fromIndex=${state.fromIndex} targetIndex=${state.targetIndex} currentTransform="${state.rowEl.style.transform}"`);
   suppressNextRowClick = true; // this was a drag, however small — never also open the sheet
   stopAutoScroll();
 
