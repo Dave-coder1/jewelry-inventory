@@ -59,35 +59,36 @@ html, body {
   border-bottom: 0.5px solid var(--separator);
 }
 
+/* Occupies the same row slot as .chips — only one of the 2 is ever
+   visible (toggled via `hidden`), so expanding search never adds a row. */
 .search-wrap {
-  position: relative;
-  margin-bottom: 8px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
 }
 
 .search-input {
-  width: 100%;
+  flex: 1;
+  min-width: 0;
   height: 36px;
   border: none;
   border-radius: 10px;
   background: var(--bg-grouped);
   color: var(--text);
   font-size: 16px;
-  padding: 0 34px 0 12px; /* room on the right for the clear button */
+  padding: 0 12px;
 }
 
 .search-input::placeholder { color: var(--text-secondary); }
 
-.search-clear {
-  position: absolute;
-  right: 4px;
-  top: 50%;
-  transform: translateY(-50%);
+.search-close {
+  flex-shrink: 0;
   width: 32px;
   height: 32px;
   border: none;
   background: none;
-  color: var(--text-secondary);
-  font-size: 13px;
+  color: var(--tint);
+  font-size: 14px;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -123,10 +124,10 @@ html, body {
   opacity: 0.8;
 }
 
-/* Pins the "⋮" to the right of the chips row, the 3 chips staying grouped
-   on the left — the only remaining top-bar row now that Add and Recently
-   deleted have moved into its menu. */
-#overflowButton {
+/* Pins the search + "⋮" buttons to the right of the chips row as a pair —
+   margin-left:auto on the first of the two pushes both of them over,
+   the 3 chips staying grouped on the left. */
+#searchToggleButton {
   margin-left: auto;
 }
 
