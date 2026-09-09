@@ -413,13 +413,21 @@ restoreFileInputEl.addEventListener("change", () => {
   if (file) handleRestoreFile(file);
 });
 
-// ---- 30-day backup reminder (§13) ----
+// ---- Backup reminder (custom thresholds — deliberately not §13's 30 days,
+// which is only for the Recently Deleted purge) ----
+//
+// 2 independent conditions, both required to show the bar: the backup
+// itself must be stale (180+ days, or none ever taken), AND it must be at
+// least a month since the "✕" was last dismissed. Dismissal is stored in
+// `meta` (not just in memory) precisely so it survives closing the app —
+// "stay hidden for a month" has to outlive any single session.
 //
 // Checked at app start and right after a backup/restore — not on every
-// render(), so dismissing it for this session doesn't get undone by
-// something unrelated (like editing a name) triggering a re-render.
+// render(), so a dismissal doesn't get undone by something unrelated (like
+// editing a name) triggering a re-render before its month is up.
 
-let reminderDismissed = false;
+const BACKUP_REMINDER_STALE_DAYS = 180;
+const BACKUP_REMINDER_SNOOZE_DAYS = 30; // "1 month", same approximation §12 already uses
 
 function daysSince(isoString) {
   const ms = Date.now() - new Date(isoString).getTime();
@@ -427,16 +435,14 @@ function daysSince(isoString) {
 }
 
 async function updateBackupReminder() {
-  if (reminderDismissed) {
-    backupReminderEl.hidden = true;
-    return;
-  }
-
   const lastBackupAt = await DB.getMeta("lastBackupAt");
   const days = lastBackupAt ? daysSince(lastBackupAt) : null;
-  const overdue = days === null || days > 30;
+  const stale = days === null || days >= BACKUP_REMINDER_STALE_DAYS;
 
-  if (!overdue) {
+  const dismissedAt = await DB.getMeta("backupReminderDismissedAt");
+  const snoozed = dismissedAt !== null && daysSince(dismissedAt) < BACKUP_REMINDER_SNOOZE_DAYS;
+
+  if (!stale || snoozed) {
     backupReminderEl.hidden = true;
     return;
   }
@@ -447,8 +453,8 @@ async function updateBackupReminder() {
 }
 
 backupReminderActionEl.addEventListener("click", handleBackup);
-backupReminderDismissEl.addEventListener("click", () => {
-  reminderDismissed = true;
+backupReminderDismissEl.addEventListener("click", async () => {
+  await DB.putMeta("backupReminderDismissedAt", new Date().toISOString());
   backupReminderEl.hidden = true;
 });
 
