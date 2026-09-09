@@ -208,6 +208,18 @@ html, body {
   grid-template-columns: 34px 132px 132px 62px 88px 84px 170px;
   align-items: center;
   min-height: 140px;
+  /* Android's built-in "long-press on text" (select word + show a context
+     menu / selection handles) runs on its own timer, independent of our
+     reorder gesture in app.js, and wins the touch if we don't suppress
+     it — this is what makes long-press-to-reorder (§8, step 9) lift, then
+     go nowhere, then silently snap back: the OS took the touch over and
+     fired pointercancel. Mouse input has no such behavior, which is why
+     this only ever shows up on a real touchscreen. */
+  -webkit-touch-callout: none;
+  -webkit-user-select: none;
+  -moz-user-select: none;
+  -ms-user-select: none;
+  user-select: none;
 }
 
 .row:not(.row-header) {

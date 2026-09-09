@@ -1567,6 +1567,12 @@ let suppressNextRowClick = false;
 let autoScrollDirection = 0; // -1 up, 0 none, 1 down
 let autoScrollRAF = null;
 
+// Belt-and-suspenders alongside .row's CSS (user-select/touch-callout:
+// none): if a device still fires its native long-press context menu
+// despite that CSS, this stops it from popping up and stealing the touch
+// out from under an in-progress long-press-to-reorder.
+rowsEl.addEventListener("contextmenu", (e) => e.preventDefault());
+
 rowsEl.addEventListener("pointerdown", (e) => {
   // Same exclusions as the tap-to-open-sheet handler — the pill and
   // thumbnails already own this pointer for their own gestures.
