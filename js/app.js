@@ -335,11 +335,41 @@ const backupReminderEl = document.getElementById("backupReminder");
 const backupReminderTextEl = document.getElementById("backupReminderText");
 const backupReminderActionEl = document.getElementById("backupReminderAction");
 const backupReminderDismissEl = document.getElementById("backupReminderDismiss");
+const storageInfoEl = document.getElementById("storageInfo");
+
+// "Using 19 MB. Last backup 3 days ago." (§14) — refreshed each time the
+// menu opens rather than kept live, since estimate() is a bit of an
+// approximation anyway and nothing needs this number outside the menu.
+async function updateStorageInfo() {
+  let usageText = "Storage usage unavailable";
+  if (navigator.storage && navigator.storage.estimate) {
+    try {
+      const { usage } = await navigator.storage.estimate();
+      const mb = (usage || 0) / (1024 * 1024);
+      usageText = `Using ${mb.toFixed(mb < 10 ? 1 : 0)} MB`;
+    } catch (err) {
+      // estimate() can reject in some private-browsing contexts — the
+      // fallback text above already covers that.
+    }
+  }
+
+  const lastBackupAt = await DB.getMeta("lastBackupAt");
+  let backupText;
+  if (!lastBackupAt) {
+    backupText = "Never backed up";
+  } else {
+    const days = daysSince(lastBackupAt);
+    backupText = days === 0 ? "Last backup today" : `Last backup ${days} day${days === 1 ? "" : "s"} ago`;
+  }
+
+  storageInfoEl.textContent = `${usageText} · ${backupText}`;
+}
 
 function openOverflowSheet() {
   overflowBackdropEl.classList.add("open");
   overflowSheetEl.classList.add("open");
   history.pushState({ overflowOpen: true }, "");
+  updateStorageInfo();
 }
 
 function hideOverflowSheet() {
@@ -1843,6 +1873,27 @@ async function init() {
   }
 
   await updateBackupReminder();
+
+  // Asks Android not to evict this site's storage (and therefore
+  // IndexedDB) when it needs to reclaim disk space. A request, not a
+  // guarantee — it can be refused, which is exactly why §13 (Backup and
+  // restore) exists at all (§14).
+  if (navigator.storage && navigator.storage.persist) {
+    navigator.storage.persist().catch(() => {});
+  }
 }
 
 init();
+
+// Cache-first app shell (sw.js, repo root — see its own comments for why
+// CACHE_VERSION is the single biggest trap in the project). Registered
+// here rather than left unregistered by accident, since a page can run
+// fine without ever installing one — the difference only shows up
+// offline (§17 step 10's check).
+if ("serviceWorker" in navigator) {
+  window.addEventListener("load", () => {
+    navigator.serviceWorker.register("sw.js").catch((err) => {
+      console.error("Service worker registration failed", err);
+    });
+  });
+}

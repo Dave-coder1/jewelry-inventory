@@ -801,6 +801,17 @@ html, body {
   text-align: center;
 }
 
+/* Passive info line at the top of the overflow menu (§14) — not a button,
+   just "Using 19 MB · Last backup 3 days ago." */
+.action-sheet-info {
+  padding: 4px 0 14px;
+  font-size: 13px;
+  color: var(--text-secondary);
+  text-align: center;
+  border-bottom: 0.5px solid var(--separator);
+  margin-bottom: 4px;
+}
+
 /* ---- Full-screen photo viewer (§10) ---- */
 .photo-viewer {
   position: fixed;
