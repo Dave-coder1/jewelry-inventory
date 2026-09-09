@@ -1620,6 +1620,28 @@ rowsEl.addEventListener("contextmenu", (e) => {
   e.preventDefault();
 });
 
+// The previous fix (preventDefault() on the *Pointer* Event, in
+// updateRowDrag) turned out to have zero effect on Samsung Internet: the
+// diagnostic log showed defaultPrevented=true on every move, with dy
+// correctly increasing, right up until pointercancel fired anyway.
+// Pointer Events are built on top of raw Touch Events — the decision to
+// treat this as a native scroll is apparently made at that lower, earlier
+// layer, before our pointer-level preventDefault() ever runs. This is a
+// 2nd, independent guard at that earlier layer: raw touchmove, the older
+// and far more battle-tested mechanism for exactly this. It MUST be
+// registered non-passive — touchmove listeners default to passive:true
+// in most browsers for scroll performance, which would make
+// preventDefault() here silently do nothing, same failure mode again.
+rowsEl.addEventListener(
+  "touchmove",
+  (e) => {
+    if (!rowDragState) return; // only suppress scroll while actively dragging
+    debugLog(`touchmove (raw) cancelable=${e.cancelable} -> preventDefault()`);
+    e.preventDefault();
+  },
+  { passive: false }
+);
+
 rowsEl.addEventListener("pointerdown", (e) => {
   // Same exclusions as the tap-to-open-sheet handler — the pill and
   // thumbnails already own this pointer for their own gestures.
