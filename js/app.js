@@ -1636,6 +1636,17 @@ function beginRowDrag() {
 }
 
 function updateRowDrag(e) {
+  // touch-action:none was already set on this row when the drag began
+  // (beginRowDrag), but changing touch-action mid-gesture is unreliable
+  // across browsers — some devices keep honouring whatever was in effect
+  // back when the touch first started (scrollable), and only recognise
+  // the change on the *next* touch. preventDefault() on every move event,
+  // by contrast, is decided live, per event, so it isn't subject to that
+  // same "locked in at touch-start" behaviour — this is what actually
+  // stops Samsung Internet from reclaiming the gesture as a scroll the
+  // instant real movement starts.
+  e.preventDefault();
+
   const state = rowDragState;
   const dy = e.clientY - state.startY;
   state.rowEl.style.transform = `translateY(${dy}px) scale(0.97)`;
