@@ -63,6 +63,11 @@ const DB = {
     return withStore("items", "readwrite", (store) => store.delete(uid));
   },
 
+  // Step 8: restore wipes the store and rebuilds it from a backup file.
+  clearItems() {
+    return withStore("items", "readwrite", (store) => store.clear());
+  },
+
   // ---- meta ----
 
   getMeta(key) {
@@ -73,5 +78,9 @@ const DB = {
 
   putMeta(key, value) {
     return withStore("meta", "readwrite", (store) => store.put({ key, value }));
+  },
+
+  clearMeta() {
+    return withStore("meta", "readwrite", (store) => store.clear());
   },
 };

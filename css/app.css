@@ -59,6 +59,12 @@ html, body {
   border-bottom: 0.5px solid var(--separator);
 }
 
+.header-top {
+  display: flex;
+  justify-content: flex-end;
+  margin-bottom: 4px;
+}
+
 .search-wrap {
   position: relative;
   margin-bottom: 8px;
@@ -121,6 +127,42 @@ html, body {
 .chip-count {
   font-variant-numeric: tabular-nums;
   opacity: 0.8;
+}
+
+/* ---- Backup reminder (§13) — a dismissible bar, never a modal ---- */
+.backup-reminder {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-top: 8px;
+  padding: 8px 8px 8px 12px;
+  background: var(--bg-grouped);
+  border-radius: 10px;
+  font-size: 13px;
+}
+
+.backup-reminder-text {
+  flex: 1;
+  color: var(--text);
+}
+
+.backup-reminder-action {
+  min-height: 32px;
+  padding: 0 8px;
+  border: none;
+  background: none;
+  color: var(--tint);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.backup-reminder-dismiss {
+  min-height: 32px;
+  min-width: 32px;
+  border: none;
+  background: none;
+  color: var(--text-secondary);
+  font-size: 13px;
 }
 
 /* ---- Table ---- */
@@ -753,6 +795,51 @@ html, body {
   object-fit: contain;
   transition: transform 200ms;
   will-change: transform;
+}
+
+/* ---- Backup/restore progress (§13) ---- */
+.progress-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 45;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.35);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 150ms;
+}
+
+.progress-overlay.open {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.progress-card {
+  min-width: 160px;
+  padding: 24px 28px;
+  border-radius: 16px;
+  background: var(--bg);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 14px;
+}
+
+.progress-spinner {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  border: 3px solid var(--separator);
+  border-top-color: var(--tint);
+  animation: spin 800ms linear infinite; /* @keyframes spin is defined above, next to the photo spinner */
+}
+
+.progress-text {
+  font-size: 14px;
+  color: var(--text);
+  text-align: center;
 }
 
 @media (prefers-reduced-motion: reduce) {

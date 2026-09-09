@@ -24,6 +24,13 @@
 // says reordering must be disabled whenever either is active, which
 // isn't wired up yet since long-press-drag doesn't exist yet.
 //
+// Step 8: Backup and restore. The overflow menu ("⋮", top right) offers
+// Back up / Restore from file. Backup.js (js/backup.js) turns items into a
+// plain JSON-safe object (and back) — this file just drives DB reads/writes
+// and the UI around that: a progress card while photos are being encoded/
+// decoded, navigator.share() with a download-link fallback, and the
+// dismissible "you haven't backed up in a while" bar (§13).
+//
 // No raw IndexedDB calls in this file — everything goes through DB (db.js).
 
 const TYPES = ["մատանի", "բրասլետ", "կուլոն", "ցեպ", "կոպեկ", "օղեր", "այլ"];
@@ -238,6 +245,211 @@ document.querySelectorAll(".chip").forEach((chip) => {
     document.querySelectorAll(".chip").forEach((c) => c.classList.toggle("chip-active", c === chip));
     render();
   });
+});
+
+// ---- Backup and restore (§13) ----
+
+const overflowButtonEl = document.getElementById("overflowButton");
+const overflowBackdropEl = document.getElementById("overflowBackdrop");
+const overflowSheetEl = document.getElementById("overflowSheet");
+const backupBtnEl = document.getElementById("backupBtn");
+const restoreBtnEl = document.getElementById("restoreBtn");
+const overflowCancelBtnEl = document.getElementById("overflowCancelBtn");
+const restoreFileInputEl = document.getElementById("restoreFileInput");
+const progressOverlayEl = document.getElementById("progressOverlay");
+const progressTextEl = document.getElementById("progressText");
+const backupReminderEl = document.getElementById("backupReminder");
+const backupReminderTextEl = document.getElementById("backupReminderText");
+const backupReminderActionEl = document.getElementById("backupReminderAction");
+const backupReminderDismissEl = document.getElementById("backupReminderDismiss");
+
+function openOverflowSheet() {
+  overflowBackdropEl.classList.add("open");
+  overflowSheetEl.classList.add("open");
+  history.pushState({ overflowOpen: true }, "");
+}
+
+function hideOverflowSheet() {
+  overflowBackdropEl.classList.remove("open");
+  overflowSheetEl.classList.remove("open");
+}
+
+function closeOverflowSheet() {
+  if (!overflowSheetEl.classList.contains("open")) return;
+  if (history.state && history.state.overflowOpen) {
+    history.back();
+  } else {
+    hideOverflowSheet();
+  }
+}
+
+overflowButtonEl.addEventListener("click", openOverflowSheet);
+overflowBackdropEl.addEventListener("click", closeOverflowSheet);
+overflowCancelBtnEl.addEventListener("click", closeOverflowSheet);
+
+// Not back-button dismissible on purpose — there's nothing sensible to
+// resume into partway through encoding/decoding photos, so it just sits
+// there until the operation finishes.
+function showProgress(text) {
+  progressTextEl.textContent = text;
+  progressOverlayEl.classList.add("open");
+}
+
+function updateProgressText(text) {
+  progressTextEl.textContent = text;
+}
+
+function hideProgress() {
+  progressOverlayEl.classList.remove("open");
+}
+
+function downloadBlob(blob, filename) {
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
+async function handleBackup() {
+  showProgress("Backing up…");
+  try {
+    const allItems = await DB.getAllItems(); // every item, including deleted (§13)
+    const backup = await Backup.buildBackup(allItems, (done, total) => {
+      updateProgressText(`Backing up… ${done} of ${total}`);
+    });
+    const filename = Backup.backupFilename();
+    const blob = new Blob([JSON.stringify(backup)], { type: "application/json" });
+    const file = new File([blob], filename, { type: "application/json" });
+
+    if (navigator.canShare && navigator.canShare({ files: [file] })) {
+      try {
+        await navigator.share({ files: [file] });
+      } catch (err) {
+        // AbortError just means the user backed out of the share sheet —
+        // that's a deliberate choice, not a failure, so leave it alone.
+        // Anything else is unexpected, so fall back to a plain download
+        // rather than leave the user with no backup at all.
+        if (err.name !== "AbortError") downloadBlob(blob, filename);
+      }
+    } else {
+      downloadBlob(blob, filename);
+    }
+
+    await DB.putMeta("lastBackupAt", new Date().toISOString());
+    await updateBackupReminder();
+  } catch (err) {
+    console.error("Backup failed", err);
+    alert("Backup failed. Please try again.");
+  } finally {
+    hideProgress();
+  }
+}
+
+async function handleRestoreFile(file) {
+  let parsed;
+  try {
+    parsed = JSON.parse(await file.text());
+  } catch (err) {
+    alert("That file isn't a valid backup.");
+    return;
+  }
+
+  if (!Backup.isValidBackup(parsed)) {
+    alert("This backup file isn't compatible with this version of the app.");
+    return;
+  }
+
+  const currentTotal = items.length; // everything, including Recently deleted
+  const incomingTotal = parsed.items.length;
+  const ok = confirm(
+    `Replace all ${currentTotal} items with the ${incomingTotal} items in this backup? This cannot be undone.`
+  );
+  if (!ok) return;
+
+  showProgress("Restoring…");
+  try {
+    // Decode every photo back into a Blob *before* touching the database —
+    // if a corrupt file throws partway through, nothing has been deleted yet.
+    const restoredItems = await Backup.parseBackupItems(parsed, (done, total) => {
+      updateProgressText(`Restoring… ${done} of ${total}`);
+    });
+
+    await DB.clearItems();
+    await DB.clearMeta();
+    for (const item of restoredItems) {
+      await DB.putItem(item);
+    }
+    await DB.putMeta("schemaVersion", Backup.SCHEMA_VERSION);
+  } catch (err) {
+    console.error("Restore failed", err);
+    alert("Restore didn't fully complete. Reloading whatever was saved.");
+  } finally {
+    // Reload from the database either way, so the in-memory list always
+    // matches whatever actually ended up persisted, success or not.
+    items = await DB.getAllItems();
+    render();
+    await updateBackupReminder();
+    hideProgress();
+  }
+}
+
+backupBtnEl.addEventListener("click", () => {
+  closeOverflowSheet();
+  handleBackup();
+});
+
+restoreBtnEl.addEventListener("click", () => {
+  closeOverflowSheet();
+  restoreFileInputEl.value = "";
+  restoreFileInputEl.click();
+});
+
+restoreFileInputEl.addEventListener("change", () => {
+  const file = restoreFileInputEl.files[0];
+  if (file) handleRestoreFile(file);
+});
+
+// ---- 30-day backup reminder (§13) ----
+//
+// Checked at app start and right after a backup/restore — not on every
+// render(), so dismissing it for this session doesn't get undone by
+// something unrelated (like editing a name) triggering a re-render.
+
+let reminderDismissed = false;
+
+function daysSince(isoString) {
+  const ms = Date.now() - new Date(isoString).getTime();
+  return Math.floor(ms / (24 * 60 * 60 * 1000));
+}
+
+async function updateBackupReminder() {
+  if (reminderDismissed) {
+    backupReminderEl.hidden = true;
+    return;
+  }
+
+  const lastBackupAt = await DB.getMeta("lastBackupAt");
+  const days = lastBackupAt ? daysSince(lastBackupAt) : null;
+  const overdue = days === null || days > 30;
+
+  if (!overdue) {
+    backupReminderEl.hidden = true;
+    return;
+  }
+
+  backupReminderTextEl.textContent =
+    days === null ? "You haven't backed up yet." : `Last backup was ${days} days ago.`;
+  backupReminderEl.hidden = false;
+}
+
+backupReminderActionEl.addEventListener("click", handleBackup);
+backupReminderDismissEl.addEventListener("click", () => {
+  reminderDismissed = true;
+  backupReminderEl.hidden = true;
 });
 
 // ---- Detail sheet ----
@@ -930,6 +1142,7 @@ window.addEventListener("popstate", () => {
   if (photoViewerEl.classList.contains("open")) { hidePhotoViewer(); return; }
   if (photoActionSheetEl.classList.contains("open")) { hidePhotoActionSheet(); return; }
   if (historyAddSheetEl.classList.contains("open")) { hideHistoryAddSheet(); return; }
+  if (overflowSheetEl.classList.contains("open")) { hideOverflowSheet(); return; }
   if (openUid) hideSheet();
   if (deletedSheetEl.classList.contains("open")) hideDeletedList();
 });
@@ -1212,6 +1425,15 @@ async function init() {
   const loaded = await seedIfEmpty();
   items = await purgeExpired(loaded);
   render();
+
+  // Stamp the data format version once, on first run only (§3's meta store).
+  // Backup/restore compare a file's own schemaVersion against Backup's
+  // constant directly, so this is mostly a record for future migrations.
+  if ((await DB.getMeta("schemaVersion")) === null) {
+    await DB.putMeta("schemaVersion", Backup.SCHEMA_VERSION);
+  }
+
+  await updateBackupReminder();
 }
 
 init();

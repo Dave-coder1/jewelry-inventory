@@ -11,6 +11,9 @@
 <div id="app">
 
   <header class="list-header">
+    <div class="header-top">
+      <button class="icon-button" id="overflowButton" aria-label="More options">⋮</button>
+    </div>
     <div class="search-wrap">
       <input type="text" class="search-input" id="searchInput" placeholder="Search">
       <button class="search-clear" id="searchClear" aria-label="Clear search" hidden>✕</button>
@@ -21,6 +24,11 @@
       <button class="chip" data-filter="home">🏠 Home <span class="chip-count" id="homeCount">0</span></button>
       <button class="icon-button" id="recentlyDeletedButton" aria-label="Recently deleted">🗑️</button>
       <button class="fab" id="addButton">+</button>
+    </div>
+    <div class="backup-reminder" id="backupReminder" hidden>
+      <span class="backup-reminder-text" id="backupReminderText"></span>
+      <button class="backup-reminder-action" id="backupReminderAction">Back up now</button>
+      <button class="backup-reminder-dismiss" id="backupReminderDismiss" aria-label="Dismiss">✕</button>
     </div>
   </header>
 
@@ -132,9 +140,28 @@
        Android offers gallery and camera both (§10). -->
   <input type="file" accept="image/*" id="photoFileInput" hidden>
 
+  <!-- §13: the "small overflow menu at the top right" -->
+  <div class="backdrop" id="overflowBackdrop"></div>
+  <div class="action-sheet" id="overflowSheet">
+    <button class="action-sheet-btn" id="backupBtn">Back up</button>
+    <button class="action-sheet-btn" id="restoreBtn">Restore from file</button>
+    <button class="action-sheet-btn action-sheet-cancel" id="overflowCancelBtn">Cancel</button>
+  </div>
+  <input type="file" accept="application/json,.json" id="restoreFileInput" hidden>
+
+  <!-- §13: shown while encoding/decoding photos for backup/restore — not
+       dismissible, since there's nothing sensible to resume into partway. -->
+  <div class="progress-overlay" id="progressOverlay">
+    <div class="progress-card">
+      <div class="progress-spinner"></div>
+      <div class="progress-text" id="progressText"></div>
+    </div>
+  </div>
+
 </div>
 <script src="js/db.js"></script>
 <script src="js/photos.js"></script>
+<script src="js/backup.js"></script>
 <script src="js/app.js"></script>
 </body>
 </html>
