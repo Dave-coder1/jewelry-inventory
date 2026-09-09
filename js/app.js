@@ -262,35 +262,46 @@ fieldStatus.addEventListener("click", async () => {
 
 // ---- History entry editing (§9) ----
 //
-// Tapping a row opens a real <input type="date"> off-screen and calls its
-// showPicker() — Android's native calendar UI is what actually shows, this
-// input just triggers it and receives the result. Kept off-screen instead
-// of shown inline because we want the OS picker, not a typed date field.
-function editHistoryDate(item, entryId) {
+// Tapping a row swaps its date text for a real, visible <input type="date">
+// in the same spot. We *try* .focus()/.showPicker() to pop the calendar
+// open immediately, but the input staying visible is what actually
+// guarantees this works everywhere: some Android browsers (Samsung
+// Internet included) silently refuse showPicker() on an element that isn't
+// genuinely on-screen, which is exactly what an earlier, invisible-and-
+// off-screen version of this input did. A real visible field never has
+// that problem — worst case, it just takes a second tap to open the
+// picker instead of one.
+function startEditHistoryDate(wrap, item, entryId) {
   const entry = item.history.find((h) => h.id === entryId);
-  if (!entry) return;
+  const dateEl = wrap.querySelector(".history-date");
+  if (!entry || !dateEl || dateEl.tagName === "INPUT") return;
 
   const input = document.createElement("input");
   input.type = "date";
   input.className = "history-date-input";
   input.value = entry.date;
-  document.body.appendChild(input);
+  dateEl.replaceWith(input);
 
-  input.addEventListener("change", async () => {
-    if (!input.value) return; // date input was cleared — keep the old date
-    entry.date = input.value;
-    await persist(item);
-    renderHistory(item);
-  });
+  const finish = async () => {
+    if (input.value && input.value !== entry.date) {
+      entry.date = input.value;
+      await persist(item);
+    }
+    renderHistory(item); // rebuilds the row either way, editing or not
+  };
 
-  // Fires whether the picker was confirmed or dismissed; either way the
-  // job of this element is done.
-  input.addEventListener("blur", () => input.remove(), { once: true });
+  input.addEventListener("change", finish);
+  input.addEventListener("blur", finish, { once: true });
 
+  input.focus();
   if (input.showPicker) {
-    input.showPicker();
-  } else {
-    input.focus();
+    try {
+      input.showPicker();
+    } catch (err) {
+      // Some browsers throw here in edge cases (e.g. called too soon after
+      // the element was inserted). Harmless — the visible input is still
+      // there, tappable, same as if showPicker() didn't exist at all.
+    }
   }
 }
 
@@ -392,7 +403,7 @@ historyListEl.addEventListener("click", async (e) => {
     return;
   }
 
-  editHistoryDate(item, entryId);
+  startEditHistoryDate(wrap, item, entryId);
 });
 
 // ---- "Add entry": pick a direction, stamp today's date (§9) ----

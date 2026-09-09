@@ -515,15 +515,17 @@ html, body {
   color: var(--text-secondary);
 }
 
-/* Off-screen but focusable, so its native date picker still opens (§9).
-   Not display:none / visibility:hidden — either would block that. */
+/* Replaces the date text in place while editing (§9). Genuinely visible —
+   some Android browsers won't open a date picker on an input that isn't
+   actually on-screen, so this can't be an invisible/off-screen trick. */
 .history-date-input {
-  position: fixed;
-  left: -9999px;
-  top: 0;
-  width: 1px;
-  height: 1px;
-  opacity: 0;
+  font: inherit;
+  font-size: 13px;
+  color: var(--text-secondary);
+  background: var(--bg-grouped);
+  border: none;
+  border-radius: 6px;
+  padding: 2px 6px;
 }
 
 .sheet-delete {
