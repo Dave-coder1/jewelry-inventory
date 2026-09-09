@@ -25,6 +25,15 @@
 
 * { box-sizing: border-box; }
 
+/* Several elements toggle their `hidden` property/attribute in app.js while
+   also having a class below that sets `display` (flex, for a spinner or an
+   icon button). Without this rule, that class's `display` would silently
+   win over the browser's own "[hidden] { display: none }" default — an
+   ordinary CSS rule beats it regardless of specificity — so a "hidden"
+   element would still show up. This one rule (with !important, so nothing
+   else can out-rank it) is what actually makes `hidden` work everywhere. */
+[hidden] { display: none !important; }
+
 html, body {
   margin: 0;
   padding: 0;
@@ -50,7 +59,10 @@ html, body {
   border-bottom: 0.5px solid var(--separator);
 }
 
-.search-wrap { margin-bottom: 8px; }
+.search-wrap {
+  position: relative;
+  margin-bottom: 8px;
+}
 
 .search-input {
   width: 100%;
@@ -60,10 +72,26 @@ html, body {
   background: var(--bg-grouped);
   color: var(--text);
   font-size: 16px;
-  padding: 0 12px;
+  padding: 0 34px 0 12px; /* room on the right for the clear button */
 }
 
 .search-input::placeholder { color: var(--text-secondary); }
+
+.search-clear {
+  position: absolute;
+  right: 4px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 32px;
+  height: 32px;
+  border: none;
+  background: none;
+  color: var(--text-secondary);
+  font-size: 13px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
 
 .chips {
   display: flex;
@@ -104,6 +132,31 @@ html, body {
 
 .table {
   width: 702px; /* 34 + 132 + 132 + 62 + 88 + 84 + 170 */
+}
+
+/* Lives below .table-scroll, not inside it — so it's never something you
+   have to scroll sideways to see (§11). */
+.empty-state {
+  padding: 48px 24px;
+  text-align: center;
+}
+
+.empty-state-text {
+  font-size: 15px;
+  color: var(--text-secondary);
+  margin-bottom: 12px;
+}
+
+.empty-state-clear {
+  display: inline-flex;
+  min-height: 44px;
+  padding: 0 16px;
+  border: none;
+  border-radius: 999px;
+  background: var(--bg-grouped);
+  color: var(--tint);
+  font-size: 15px;
+  font-weight: 500;
 }
 
 .row {

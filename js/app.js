@@ -18,6 +18,12 @@
 // deleting history never touches `status`, and toggling `status` never
 // edits existing history — see §9's "kept separate on purpose".
 //
+// Step 7: Search and filters. `searchQuery` and `activeFilter` (§11) are
+// applied together (AND) in render() to decide which items are visible —
+// nothing else needs to know about them. Note for step 9 (reorder): §11
+// says reordering must be disabled whenever either is active, which
+// isn't wired up yet since long-press-drag doesn't exist yet.
+//
 // No raw IndexedDB calls in this file — everything goes through DB (db.js).
 
 const TYPES = ["մատանի", "բրասլետ", "կուլոն", "ցեպ", "կոպեկ", "օղեր", "այլ"];
@@ -129,17 +135,110 @@ function renderRow(item) {
   return row;
 }
 
+// ---- Search and filter (§11) ----
+//
+// Chip counts always reflect every active item, regardless of the current
+// search text — they answer "how many total", not "how many showing".
+// Only the row list itself is narrowed by search + filter, combined (AND).
+
+const searchInputEl = document.getElementById("searchInput");
+const searchClearEl = document.getElementById("searchClear");
+const emptyStateEl = document.getElementById("emptyState");
+
+let searchQuery = "";
+let activeFilter = "all"; // "all" | "bank" | "home"
+
+function escapeHtml(str) {
+  return str.replace(/[&<>"']/g, (ch) => ({
+    "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;",
+  }[ch]));
+}
+
+// Substring match against name, code, note and type — case-insensitive in
+// a way that also works for Armenian, which toLowerCase() alone does not
+// reliably handle (§11).
+function itemMatchesSearch(item, query) {
+  if (!query) return true;
+  const q = query.toLocaleLowerCase();
+  return (
+    item.name.toLocaleLowerCase().includes(q) ||
+    item.code.toLocaleLowerCase().includes(q) ||
+    item.note.toLocaleLowerCase().includes(q) ||
+    item.type.toLocaleLowerCase().includes(q)
+  );
+}
+
 function render() {
   const rowsEl = document.getElementById("rows");
   rowObjectUrls.forEach((url) => URL.revokeObjectURL(url));
   rowObjectUrls = [];
+
   const active = items.filter((item) => !item.deletedAt).sort((a, b) => a.position - b.position);
-  rowsEl.innerHTML = "";
-  active.forEach((item) => rowsEl.appendChild(renderRow(item)));
   allCountEl.textContent = active.length;
   bankCountEl.textContent = active.filter((item) => item.status === "bank").length;
   homeCountEl.textContent = active.filter((item) => item.status === "home").length;
+
+  const visible = active
+    .filter((item) => activeFilter === "all" || item.status === activeFilter)
+    .filter((item) => itemMatchesSearch(item, searchQuery));
+
+  rowsEl.innerHTML = "";
+
+  if (visible.length === 0) {
+    showEmptyState();
+  } else {
+    hideEmptyState();
+    visible.forEach((item) => rowsEl.appendChild(renderRow(item)));
+  }
 }
+
+function showEmptyState() {
+  emptyStateEl.hidden = false;
+
+  if (searchQuery) {
+    emptyStateEl.innerHTML = `
+      <div class="empty-state-text">No items match "${escapeHtml(searchQuery)}"</div>
+      <button class="empty-state-clear" id="emptyClearSearch">Clear search</button>
+    `;
+    document.getElementById("emptyClearSearch").addEventListener("click", clearSearch);
+  } else if (activeFilter === "all") {
+    emptyStateEl.innerHTML = `<div class="empty-state-text">No items yet.</div>`;
+  } else {
+    const label = activeFilter === "bank" ? "Bank" : "Home";
+    emptyStateEl.innerHTML = `<div class="empty-state-text">No items in ${label}.</div>`;
+  }
+}
+
+function hideEmptyState() {
+  emptyStateEl.hidden = true;
+  emptyStateEl.innerHTML = "";
+}
+
+function clearSearch() {
+  searchQuery = "";
+  searchInputEl.value = "";
+  searchClearEl.hidden = true;
+  render();
+}
+
+searchInputEl.addEventListener("input", () => {
+  searchQuery = searchInputEl.value;
+  searchClearEl.hidden = searchQuery.length === 0;
+  render();
+});
+
+searchClearEl.addEventListener("click", clearSearch);
+
+// Single selection: whichever chip is tapped becomes the only active one.
+document.querySelectorAll(".chip").forEach((chip) => {
+  chip.addEventListener("click", () => {
+    const filter = chip.dataset.filter;
+    if (filter === activeFilter) return;
+    activeFilter = filter;
+    document.querySelectorAll(".chip").forEach((c) => c.classList.toggle("chip-active", c === chip));
+    render();
+  });
+});
 
 // ---- Detail sheet ----
 

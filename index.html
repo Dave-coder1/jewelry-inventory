@@ -12,12 +12,13 @@
 
   <header class="list-header">
     <div class="search-wrap">
-      <input type="text" class="search-input" placeholder="Search" disabled>
+      <input type="text" class="search-input" id="searchInput" placeholder="Search">
+      <button class="search-clear" id="searchClear" aria-label="Clear search" hidden>✕</button>
     </div>
     <div class="chips">
-      <button class="chip chip-active">All <span class="chip-count" id="allCount">8</span></button>
-      <button class="chip">🏦 Bank <span class="chip-count" id="bankCount">0</span></button>
-      <button class="chip">🏠 Home <span class="chip-count" id="homeCount">0</span></button>
+      <button class="chip chip-active" data-filter="all">All <span class="chip-count" id="allCount">8</span></button>
+      <button class="chip" data-filter="bank">🏦 Bank <span class="chip-count" id="bankCount">0</span></button>
+      <button class="chip" data-filter="home">🏠 Home <span class="chip-count" id="homeCount">0</span></button>
       <button class="icon-button" id="recentlyDeletedButton" aria-label="Recently deleted">🗑️</button>
       <button class="fab" id="addButton">+</button>
     </div>
@@ -37,6 +38,7 @@
       <div id="rows"></div>
     </div>
   </div>
+  <div class="empty-state" id="emptyState" hidden></div>
 
   <div class="backdrop" id="backdrop"></div>
   <div class="sheet" id="sheet">
