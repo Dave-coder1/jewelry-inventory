@@ -13,7 +13,7 @@ no analytics. All data lives on the device.
 
 | | |
 |---|---|
-| Device | Samsung Galaxy S24 Ultra, Chrome for Android, portrait only |
+| Device | Samsung Galaxy S24 Ultra, Samsung Browser, portrait only |
 | Design viewport | 390 px CSS wide (design for this, allow 360–430) |
 | Items | 20–40, will not exceed ~100 |
 | Network | Must work fully offline (the bank vault has no signal) |
