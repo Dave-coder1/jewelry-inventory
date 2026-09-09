@@ -456,12 +456,37 @@ html, body {
   flex-direction: column;
 }
 
+/* Each entry is a delete button sitting behind a foreground row (§9: swipe
+   left to delete). The wrap clips the row so the button is invisible until
+   the row is dragged left to reveal it. */
+.history-row-wrap {
+  position: relative;
+  overflow: hidden;
+}
+
+.history-delete-btn {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: 72px;
+  border: none;
+  background: var(--destructive);
+  color: #FFFFFF;
+  font-size: 13px;
+  font-weight: 600;
+}
+
 .history-row {
+  position: relative;
+  background: var(--bg);
   display: flex;
   justify-content: space-between;
   padding: 10px 0;
   border-bottom: 0.5px solid var(--separator);
   font-size: 13px;
+  transition: transform 200ms;
+  touch-action: pan-y; /* vertical scroll stays native; we drive horizontal */
 }
 
 .history-date {
@@ -488,6 +513,17 @@ html, body {
 
 .sheet-add-entry:disabled {
   color: var(--text-secondary);
+}
+
+/* Off-screen but focusable, so its native date picker still opens (§9).
+   Not display:none / visibility:hidden — either would block that. */
+.history-date-input {
+  position: fixed;
+  left: -9999px;
+  top: 0;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
 }
 
 .sheet-delete {
@@ -588,9 +624,10 @@ html, body {
 }
 
 /* ---- Photo replace/remove action sheet (§9) ---- */
-/* This backdrop sits on top of the detail sheet (z-index 31), not behind
-   it like the other 2 backdrops that dim the plain list. */
-#photoActionBackdrop {
+/* These 2 backdrops sit on top of the detail sheet (z-index 31), not behind
+   it like the other backdrops that dim the plain list. */
+#photoActionBackdrop,
+#historyAddBackdrop {
   z-index: 40;
 }
 

@@ -10,9 +10,13 @@
 // or sheet) opens the full-screen viewer; long-pressing a filled sheet
 // photo offers Replace/Remove. See §10.
 //
-// The status pill's toggle+history write, and history editing/"Add entry"
-// (§8, §17 step 6) are still not wired up — those controls render but stay
-// inert until their step.
+// Step 6: Status and history. Tapping the status pill (list or sheet)
+// flips bank/home, appends a dated history entry, and buzzes the phone
+// (§8). In the sheet, tapping a history row opens a native date picker for
+// it; swiping one left reveals Delete (or deletes outright on a full
+// swipe); "Add entry" appends a manual record dated today (§9). Editing or
+// deleting history never touches `status`, and toggling `status` never
+// edits existing history — see §9's "kept separate on purpose".
 //
 // No raw IndexedDB calls in this file — everything goes through DB (db.js).
 
@@ -133,6 +137,8 @@ function render() {
   rowsEl.innerHTML = "";
   active.forEach((item) => rowsEl.appendChild(renderRow(item)));
   allCountEl.textContent = active.length;
+  bankCountEl.textContent = active.filter((item) => item.status === "bank").length;
+  homeCountEl.textContent = active.filter((item) => item.status === "home").length;
 }
 
 // ---- Detail sheet ----
@@ -152,6 +158,14 @@ const historyListEl = document.getElementById("historyList");
 const deleteItemEl = document.getElementById("deleteItem");
 const addButtonEl = document.getElementById("addButton");
 const allCountEl = document.getElementById("allCount");
+const bankCountEl = document.getElementById("bankCount");
+const homeCountEl = document.getElementById("homeCount");
+const addEntryEl = document.getElementById("addEntry");
+const historyAddBackdropEl = document.getElementById("historyAddBackdrop");
+const historyAddSheetEl = document.getElementById("historyAddSheet");
+const historyToBankBtnEl = document.getElementById("historyToBankBtn");
+const historyToHomeBtnEl = document.getElementById("historyToHomeBtn");
+const historyAddCancelBtnEl = document.getElementById("historyAddCancelBtn");
 const recentlyDeletedButtonEl = document.getElementById("recentlyDeletedButton");
 const deletedBackdropEl = document.getElementById("deletedBackdrop");
 const deletedSheetEl = document.getElementById("deletedSheet");
@@ -206,16 +220,222 @@ function renderHistory(item) {
     });
 
   sorted.forEach((entry) => {
-    const row = document.createElement("div");
-    row.className = "history-row";
+    const wrap = document.createElement("div");
+    wrap.className = "history-row-wrap";
+    wrap.dataset.entryId = entry.id;
     const label = entry.to === "bank" ? "To Bank" : "To Home";
-    row.innerHTML = `
-      <span class="history-to">${label}</span>
-      <span class="history-date">${formatHistoryDate(entry.date)}</span>
+    wrap.innerHTML = `
+      <button class="history-delete-btn">Delete</button>
+      <div class="history-row">
+        <span class="history-to">${label}</span>
+        <span class="history-date">${formatHistoryDate(entry.date)}</span>
+      </div>
     `;
-    historyListEl.appendChild(row);
+    historyListEl.appendChild(wrap);
   });
 }
+
+// ---- Status pill: toggle bank/home, append history, buzz (§8) ----
+
+async function toggleStatus(item) {
+  item.status = item.status === "bank" ? "home" : "bank";
+  item.history.push({
+    id: crypto.randomUUID(),
+    to: item.status,
+    date: new Date().toISOString().slice(0, 10),
+  });
+  await persist(item);
+  if (navigator.vibrate) navigator.vibrate(10);
+}
+
+fieldStatus.addEventListener("click", async () => {
+  const item = findItem(openUid);
+  if (!item) return;
+  await toggleStatus(item);
+  // persist() already re-rendered the (hidden) list; the sheet's own pill
+  // and history also show status/history, so refresh those here too.
+  const isBank = item.status === "bank";
+  fieldStatus.className = "sheet-status-pill " + (isBank ? "pill-bank" : "pill-home");
+  fieldStatus.textContent = isBank ? "🏦 Bank" : "🏠 Home";
+  renderHistory(item);
+});
+
+// ---- History entry editing (§9) ----
+//
+// Tapping a row opens a real <input type="date"> off-screen and calls its
+// showPicker() — Android's native calendar UI is what actually shows, this
+// input just triggers it and receives the result. Kept off-screen instead
+// of shown inline because we want the OS picker, not a typed date field.
+function editHistoryDate(item, entryId) {
+  const entry = item.history.find((h) => h.id === entryId);
+  if (!entry) return;
+
+  const input = document.createElement("input");
+  input.type = "date";
+  input.className = "history-date-input";
+  input.value = entry.date;
+  document.body.appendChild(input);
+
+  input.addEventListener("change", async () => {
+    if (!input.value) return; // date input was cleared — keep the old date
+    entry.date = input.value;
+    await persist(item);
+    renderHistory(item);
+  });
+
+  // Fires whether the picker was confirmed or dismissed; either way the
+  // job of this element is done.
+  input.addEventListener("blur", () => input.remove(), { once: true });
+
+  if (input.showPicker) {
+    input.showPicker();
+  } else {
+    input.focus();
+  }
+}
+
+// Which entry (if any) is currently swiped open, revealing its Delete
+// button. Tracked so a tap elsewhere can close it, and so a tap on an
+// already-open row closes it instead of opening the date picker.
+let openHistoryEntryId = null;
+
+const HISTORY_REVEAL_PX = 72; // width of the Delete button
+const HISTORY_AUTO_DELETE_PX = 140; // swipe this far and it deletes on release
+
+let historySwipe = null; // { wrap, rowEl, startX, startY, startTranslate, horizontal, translate }
+
+historyListEl.addEventListener("pointerdown", (e) => {
+  const wrap = e.target.closest(".history-row-wrap");
+  if (!wrap || e.target.closest(".history-delete-btn")) return;
+
+  historySwipe = {
+    wrap,
+    rowEl: wrap.querySelector(".history-row"),
+    startX: e.clientX,
+    startY: e.clientY,
+    startTranslate: wrap.dataset.entryId === openHistoryEntryId ? -HISTORY_REVEAL_PX : 0,
+    horizontal: null, // unknown until the pointer has moved a bit
+    translate: 0,
+  };
+});
+
+historyListEl.addEventListener("pointermove", (e) => {
+  if (!historySwipe) return;
+  const dx = e.clientX - historySwipe.startX;
+  const dy = e.clientY - historySwipe.startY;
+
+  if (historySwipe.horizontal === null) {
+    if (Math.abs(dx) < 8 && Math.abs(dy) < 8) return; // not enough to tell yet
+    historySwipe.horizontal = Math.abs(dx) > Math.abs(dy);
+    if (!historySwipe.horizontal) {
+      historySwipe = null; // a vertical drag — leave it to the page scroll
+      return;
+    }
+    historySwipe.rowEl.style.transition = "none";
+  }
+
+  const translate = Math.max(-220, Math.min(0, historySwipe.startTranslate + dx));
+  historySwipe.translate = translate;
+  historySwipe.rowEl.style.transform = `translateX(${translate}px)`;
+});
+
+async function endHistorySwipe() {
+  if (!historySwipe) return;
+  const { wrap, rowEl, horizontal, translate } = historySwipe;
+  historySwipe = null;
+  if (!horizontal) return;
+
+  rowEl.style.transition = "";
+
+  if (translate <= -HISTORY_AUTO_DELETE_PX) {
+    // A full swipe deletes immediately, no need to land on the button.
+    const item = findItem(openUid);
+    if (item) {
+      item.history = item.history.filter((h) => h.id !== wrap.dataset.entryId);
+      if (openHistoryEntryId === wrap.dataset.entryId) openHistoryEntryId = null;
+      await persist(item);
+      renderHistory(item);
+    }
+  } else if (translate <= -HISTORY_REVEAL_PX / 2) {
+    rowEl.style.transform = `translateX(-${HISTORY_REVEAL_PX}px)`;
+    openHistoryEntryId = wrap.dataset.entryId;
+  } else {
+    rowEl.style.transform = "";
+    if (openHistoryEntryId === wrap.dataset.entryId) openHistoryEntryId = null;
+  }
+}
+
+historyListEl.addEventListener("pointerup", endHistorySwipe);
+historyListEl.addEventListener("pointercancel", endHistorySwipe);
+
+historyListEl.addEventListener("click", async (e) => {
+  const wrap = e.target.closest(".history-row-wrap");
+  if (!wrap) return;
+  const entryId = wrap.dataset.entryId;
+  const item = findItem(openUid);
+  if (!item) return;
+
+  if (e.target.closest(".history-delete-btn")) {
+    item.history = item.history.filter((h) => h.id !== entryId);
+    if (openHistoryEntryId === entryId) openHistoryEntryId = null;
+    await persist(item);
+    renderHistory(item);
+    return;
+  }
+
+  if (openHistoryEntryId === entryId) {
+    // A tap on an already-revealed row just closes it — a swipe that ends
+    // in a real tap (no movement) never reaches here at all, since mobile
+    // browsers suppress the synthetic click after a drag past a few px.
+    wrap.querySelector(".history-row").style.transform = "";
+    openHistoryEntryId = null;
+    return;
+  }
+
+  editHistoryDate(item, entryId);
+});
+
+// ---- "Add entry": pick a direction, stamp today's date (§9) ----
+
+function openHistoryAddSheet() {
+  historyAddBackdropEl.classList.add("open");
+  historyAddSheetEl.classList.add("open");
+  history.pushState({ historyAddOpen: true }, "");
+}
+
+function hideHistoryAddSheet() {
+  historyAddBackdropEl.classList.remove("open");
+  historyAddSheetEl.classList.remove("open");
+}
+
+function closeHistoryAddSheet() {
+  if (!historyAddSheetEl.classList.contains("open")) return;
+  if (history.state && history.state.historyAddOpen) {
+    history.back();
+  } else {
+    hideHistoryAddSheet();
+  }
+}
+
+async function addHistoryEntry(to) {
+  const item = findItem(openUid);
+  if (!item) return;
+  item.history.push({ id: crypto.randomUUID(), to, date: new Date().toISOString().slice(0, 10) });
+  await persist(item);
+  renderHistory(item);
+}
+
+addEntryEl.addEventListener("click", openHistoryAddSheet);
+historyAddBackdropEl.addEventListener("click", closeHistoryAddSheet);
+historyAddCancelBtnEl.addEventListener("click", closeHistoryAddSheet);
+historyToBankBtnEl.addEventListener("click", () => {
+  closeHistoryAddSheet();
+  addHistoryEntry("bank");
+});
+historyToHomeBtnEl.addEventListener("click", () => {
+  closeHistoryAddSheet();
+  addHistoryEntry("home");
+});
 
 function updateNoteCount() {
   const len = fieldNote.value.length;
@@ -599,18 +819,26 @@ function closeSheet() {
 window.addEventListener("popstate", () => {
   if (photoViewerEl.classList.contains("open")) { hidePhotoViewer(); return; }
   if (photoActionSheetEl.classList.contains("open")) { hidePhotoActionSheet(); return; }
+  if (historyAddSheetEl.classList.contains("open")) { hideHistoryAddSheet(); return; }
   if (openUid) hideSheet();
   if (deletedSheetEl.classList.contains("open")) hideDeletedList();
 });
 
 backdropEl.addEventListener("click", closeSheet);
 
-// Tap on a row opens the sheet, except on the pill (its own toggle gesture,
-// wired up in step 6) or a thumbnail, which opens the photo viewer instead —
-// but only if that slot actually has a photo (§8: "Tap either thumbnail |
-// Open photo viewer").
-document.getElementById("rows").addEventListener("click", (e) => {
-  if (e.target.closest(".pill")) return;
+// Tap on a row opens the sheet, except on the pill, which toggles status in
+// place, or a thumbnail, which opens the photo viewer instead — but only if
+// that slot actually has a photo (§8: "Tap either thumbnail | Open photo
+// viewer").
+document.getElementById("rows").addEventListener("click", async (e) => {
+  const pill = e.target.closest(".pill");
+  if (pill) {
+    e.stopPropagation(); // §8: must not also open the sheet
+    const row = pill.closest(".row");
+    const item = findItem(row && row.dataset.uid);
+    if (item) await toggleStatus(item);
+    return;
+  }
 
   const thumb = e.target.closest(".thumb");
   if (thumb) {

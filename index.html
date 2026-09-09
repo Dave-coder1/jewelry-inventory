@@ -16,8 +16,8 @@
     </div>
     <div class="chips">
       <button class="chip chip-active">All <span class="chip-count" id="allCount">8</span></button>
-      <button class="chip">🏦 Bank <span class="chip-count">0</span></button>
-      <button class="chip">🏠 Home <span class="chip-count">0</span></button>
+      <button class="chip">🏦 Bank <span class="chip-count" id="bankCount">0</span></button>
+      <button class="chip">🏠 Home <span class="chip-count" id="homeCount">0</span></button>
       <button class="icon-button" id="recentlyDeletedButton" aria-label="Recently deleted">🗑️</button>
       <button class="fab" id="addButton">+</button>
     </div>
@@ -82,13 +82,13 @@
 
       <div class="sheet-field">
         <div class="sheet-label">Status</div>
-        <button class="sheet-status-pill" id="fieldStatus" disabled></button>
+        <button class="sheet-status-pill" id="fieldStatus"></button>
       </div>
 
       <div class="sheet-field">
         <div class="sheet-label">Move history</div>
         <div class="history-list" id="historyList"></div>
-        <button class="sheet-add-entry" id="addEntry" disabled>Add entry</button>
+        <button class="sheet-add-entry" id="addEntry">Add entry</button>
       </div>
 
       <button class="sheet-delete" id="deleteItem">Delete item</button>
@@ -110,6 +110,15 @@
     <button class="action-sheet-btn" id="photoReplaceBtn">Replace photo</button>
     <button class="action-sheet-btn action-sheet-destructive" id="photoRemoveBtn">Remove photo</button>
     <button class="action-sheet-btn action-sheet-cancel" id="photoCancelBtn">Cancel</button>
+  </div>
+
+  <!-- §9: "Add entry" asks which direction the manual record is for, then
+       stamps it with today's date (editable afterwards like any entry). -->
+  <div class="backdrop" id="historyAddBackdrop"></div>
+  <div class="action-sheet" id="historyAddSheet">
+    <button class="action-sheet-btn" id="historyToBankBtn">🏦 To Bank</button>
+    <button class="action-sheet-btn" id="historyToHomeBtn">🏠 To Home</button>
+    <button class="action-sheet-btn action-sheet-cancel" id="historyAddCancelBtn">Cancel</button>
   </div>
 
   <!-- §10: full-screen photo viewer -->
