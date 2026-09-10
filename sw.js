@@ -9,8 +9,16 @@
 
 // THIS IS THE SINGLE BIGGEST TRAP IN THE PROJECT. If this isn't bumped on
 // every deploy, the phone keeps serving the OLD cached code after a push,
-// and it looks exactly as though the change did nothing at all.
-const CACHE_VERSION = "v1";
+// and it looks exactly as though the change did nothing at all. Bump past
+// every value ANY branch has ever used — not just +1 from main — checked
+// via `git log --all -p -- sw.js` across every branch (deleted ones too,
+// as far as still-reachable history goes), since 2 sibling branches once
+// each bumped "v1" to "v2" independently and ended up byte-identical,
+// which meant a phone that had cached either one's service worker never
+// noticed the other was different after a Pages source-branch switch.
+// Every value used anywhere so far: v1 (main), v2 (an abandoned branch,
+// since deleted), v3 and v4 (another since-superseded branch) — so v5.
+const CACHE_VERSION = "v5";
 const CACHE_NAME = `jewelry-shell-${CACHE_VERSION}`;
 
 const APP_SHELL = [

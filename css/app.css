@@ -321,6 +321,51 @@ html, body {
   text-overflow: ellipsis;
 }
 
+/* The Type column header is a real <button> (tap to sort, long-press to
+   filter — §11), so its native button chrome is stripped back to look
+   like the plain header cells either side of it. */
+.cell-type-header {
+  border: none;
+  background: none;
+  font-family: inherit;
+  text-align: left;
+  cursor: pointer;
+  /* Belt-and-suspenders against Android's native "long-press selects
+     text" on the header's own label — same reasoning as .row's identical
+     rule below, for the same kind of gesture. */
+  -webkit-touch-callout: none;
+  -webkit-user-select: none;
+  -moz-user-select: none;
+  -ms-user-select: none;
+  user-select: none;
+}
+
+.cell-type-header.sort-active {
+  color: var(--tint);
+  font-weight: 600;
+}
+
+.type-sort-arrow {
+  margin-left: 3px;
+  font-size: 10px;
+}
+
+/* Always-visible hint that a long-press does something (opens the type
+   filter picker) — independent of the sort-active tint above, so it only
+   ever changes color for its own state (a filter is currently applied),
+   not whenever a sort also happens to be on. */
+.type-filter-icon {
+  width: 12px;
+  height: 10px;
+  margin-left: 4px;
+  vertical-align: middle;
+  fill: var(--text-secondary);
+}
+
+.type-filter-icon.filter-active {
+  fill: var(--tint);
+}
+
 .cell-note {
   font-size: 13px;
   font-weight: 400;
@@ -810,6 +855,23 @@ html, body {
   text-align: center;
   border-bottom: 0.5px solid var(--separator);
   margin-bottom: 4px;
+}
+
+/* The type-filter picker's currently-active choice (§11) — a leading
+   checkmark is added to its label in JS; this just gives it a light
+   background too, so it doesn't rely on the checkmark alone. */
+.type-filter-option-active {
+  background: var(--bg-grouped);
+  font-weight: 600;
+}
+
+/* "All types", the picker's reset option — bold always (not just when
+   active), plus a gap below it so it visually splits off from the 7 real
+   type choices underneath. Same margin-gap trick as .action-sheet-cancel's
+   own margin-top just below, applied to the opposite edge here. */
+.type-filter-all-option {
+  font-weight: 600;
+  margin-bottom: 8px;
 }
 
 /* ---- Full-screen photo viewer (§10) ---- */
