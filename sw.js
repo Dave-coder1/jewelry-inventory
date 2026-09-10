@@ -10,7 +10,7 @@
 // THIS IS THE SINGLE BIGGEST TRAP IN THE PROJECT. If this isn't bumped on
 // every deploy, the phone keeps serving the OLD cached code after a push,
 // and it looks exactly as though the change did nothing at all.
-const CACHE_VERSION = "v1";
+const CACHE_VERSION = "v2";
 const CACHE_NAME = `jewelry-shell-${CACHE_VERSION}`;
 
 const APP_SHELL = [

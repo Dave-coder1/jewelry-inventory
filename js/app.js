@@ -18,9 +18,13 @@
 // deleting history never touches `status`, and toggling `status` never
 // edits existing history — see §9's "kept separate on purpose".
 //
-// Step 7: Search and filters. `searchQuery` and `activeFilter` (§11) are
-// applied together (AND) in render() to decide which items are visible —
-// nothing else needs to know about them.
+// Step 7: Search and filters. `searchQuery`, `activeFilter` and
+// `activeTypeFilter` (§11) are all applied together (AND) in render() to
+// decide which items are visible. `typeSortActive` then optionally
+// re-sorts that visible list alphabetically by type — display order only,
+// never touching `position`. The Type filter is a custom picker opened by
+// long-pressing the "Type" column header (tapping it toggles the sort
+// instead) — see "Type filter and sort" further down for that gesture.
 //
 // Step 8: Backup and restore. The overflow menu ("⋮", top right) offers
 // Back up / Restore from file. Backup.js (js/backup.js) turns items into a
@@ -30,9 +34,10 @@
 // dismissible "you haven't backed up in a while" bar (§13).
 //
 // Step 9: Reorder. Long-press 200ms then drag vertically to move a row,
-// via Pointer Events (§8) — disabled while search/filter is active, since
-// the visible order isn't the real order then (§11). See the "Reorder"
-// section below for the whole gesture.
+// via Pointer Events (§8) — disabled while search, the Bank/Home filter,
+// the Type filter, or a Type sort is active, since the visible order isn't
+// the real order then (§11). See the "Reorder" section below for the whole
+// gesture.
 //
 // No raw IndexedDB calls in this file — everything goes through DB (db.js).
 
@@ -194,7 +199,16 @@ function render() {
 
   const visible = active
     .filter((item) => activeFilter === "all" || item.status === activeFilter)
-    .filter((item) => itemMatchesSearch(item, searchQuery));
+    .filter((item) => itemMatchesSearch(item, searchQuery))
+    .filter((item) => !activeTypeFilter || item.type === activeTypeFilter);
+
+  // Tapping the "Type" header re-sorts this on-screen copy only — `position`
+  // (the real, manually-set order) is never written. Array.prototype.sort is
+  // stable in every browser this app targets, so items sharing a type keep
+  // their relative manual order underneath the sort.
+  if (typeSortActive) {
+    visible.sort((a, b) => a.type.localeCompare(b.type));
+  }
 
   rowsEl.innerHTML = "";
 
@@ -215,12 +229,24 @@ function showEmptyState() {
       <button class="empty-state-clear" id="emptyClearSearch">Clear search</button>
     `;
     document.getElementById("emptyClearSearch").addEventListener("click", clearSearch);
-  } else if (activeFilter === "all") {
-    emptyStateEl.innerHTML = `<div class="empty-state-text">No items yet.</div>`;
-  } else {
-    const label = activeFilter === "bank" ? "Bank" : "Home";
-    emptyStateEl.innerHTML = `<div class="empty-state-text">No items in ${label}.</div>`;
+    return;
   }
+
+  // No search text — the Bank/Home chip and the Type filter can each be on
+  // their own, both together, or neither (the plain "No items yet."). Both
+  // pieces just get stitched into 1 sentence when both are active.
+  const locationLabel = activeFilter === "bank" ? "Bank" : activeFilter === "home" ? "Home" : "";
+  let text;
+  if (locationLabel && activeTypeFilter) {
+    text = `No items in ${locationLabel} of type "${activeTypeFilter}".`;
+  } else if (locationLabel) {
+    text = `No items in ${locationLabel}.`;
+  } else if (activeTypeFilter) {
+    text = `No items of type "${activeTypeFilter}".`;
+  } else {
+    text = "No items yet.";
+  }
+  emptyStateEl.innerHTML = `<div class="empty-state-text">${text}</div>`;
 }
 
 function hideEmptyState() {
@@ -313,6 +339,157 @@ document.querySelectorAll(".chip").forEach((chip) => {
     render();
   });
 });
+
+// ---- Type filter and sort ----
+//
+// Both live entirely on the "Type" column header — no new button or row in
+// the top bar. A tap toggles the alphabetical sort (Armenian-aware, via
+// localeCompare — same locale-sensitive approach the search match above
+// uses). A long-press opens a custom action-sheet picker to narrow the
+// list to 1 type, deliberately not a native <select> so there's no
+// OS-added control chrome. Both are display-only — neither ever writes to
+// `position` — and both gate reordering the same way search/filter already
+// do; see canReorder() further down.
+
+const typeSortHeaderEl = document.getElementById("typeSortHeader");
+const typeSortArrowEl = document.getElementById("typeSortArrow");
+const typeFilterIconEl = document.getElementById("typeFilterIcon");
+const typeFilterBackdropEl = document.getElementById("typeFilterBackdrop");
+const typeFilterSheetEl = document.getElementById("typeFilterSheet");
+const typeFilterCancelBtnEl = document.getElementById("typeFilterCancelBtn");
+
+let activeTypeFilter = ""; // "" = every type, otherwise 1 of TYPES
+let typeSortActive = false;
+
+// The picker's options: "All types" (clears the filter) plus 1 per TYPES
+// value, built from that same array — same single-source-of-truth idea as
+// the sheet's own Type field a bit further down. Inserted right before the
+// sheet's Cancel button, which stays written directly in the HTML.
+function makeTypeFilterOption(value, label) {
+  const btn = document.createElement("button");
+  btn.className = "action-sheet-btn type-filter-option";
+  btn.dataset.type = value;
+  btn.dataset.label = label;
+  btn.textContent = label;
+  typeFilterSheetEl.insertBefore(btn, typeFilterCancelBtnEl);
+  return btn;
+}
+
+const typeFilterOptionEls = [makeTypeFilterOption("", "All types")];
+TYPES.forEach((type) => typeFilterOptionEls.push(makeTypeFilterOption(type, type)));
+
+// Re-labels whichever option matches the current filter with a leading
+// checkmark (and un-labels every other one) — run right before the sheet
+// opens, so it always reflects whatever's actually applied right now.
+function updateTypeFilterSheetSelection() {
+  typeFilterOptionEls.forEach((btn) => {
+    const isActive = btn.dataset.type === activeTypeFilter;
+    btn.textContent = isActive ? `✓ ${btn.dataset.label}` : btn.dataset.label;
+    btn.classList.toggle("type-filter-option-active", isActive);
+  });
+}
+
+// Same open/close-via-history.back() shape as every other overlay in this
+// app (openSheet, the action sheets, etc.) — see openSheet()'s comment
+// further down for why this keeps back-button and backdrop-tap consistent.
+function openTypeFilterSheet() {
+  updateTypeFilterSheetSelection();
+  typeFilterBackdropEl.classList.add("open");
+  typeFilterSheetEl.classList.add("open");
+  history.pushState({ typeFilterOpen: true }, "");
+}
+
+function hideTypeFilterSheet() {
+  typeFilterBackdropEl.classList.remove("open");
+  typeFilterSheetEl.classList.remove("open");
+}
+
+function closeTypeFilterSheet() {
+  if (!typeFilterSheetEl.classList.contains("open")) return;
+  if (history.state && history.state.typeFilterOpen) {
+    history.back();
+  } else {
+    hideTypeFilterSheet();
+  }
+}
+
+typeFilterBackdropEl.addEventListener("click", closeTypeFilterSheet);
+typeFilterCancelBtnEl.addEventListener("click", closeTypeFilterSheet);
+
+typeFilterSheetEl.addEventListener("click", (e) => {
+  const btn = e.target.closest(".type-filter-option");
+  if (!btn) return;
+  activeTypeFilter = btn.dataset.type;
+  // Independent of the sort-active tint on the header text — this only
+  // ever reflects "a type filter is applied", nothing else.
+  typeFilterIconEl.classList.toggle("filter-active", activeTypeFilter !== "");
+  closeTypeFilterSheet();
+  render();
+});
+
+// Tap (toggle sort) vs. long-press (open the picker above) on the header
+// itself. Same 500ms-timer-cancelled-by-8px-movement, act-on-release shape
+// as the sheet-photo tap/long-press gesture in §10 — see its comment for
+// the full reasoning — with 1 addition: this header also sits inside the
+// horizontally-scrollable table (§7), so a drag that starts here to scroll
+// the table sideways must cancel the tap too, not just the long-press.
+// (The sheet-photo gesture doesn't need this: nothing there is scrollable,
+// so the only reason a pointer would move is the long-press's own 8px
+// cancel check, never a legitimate drag someone actually wants to keep.)
+let typeHeaderPressTimer = null;
+let typeHeaderPressStart = null; // { x, y }
+let typeHeaderLongPressFired = false;
+let typeHeaderMoved = false;
+
+typeSortHeaderEl.addEventListener("pointerdown", (e) => {
+  typeHeaderLongPressFired = false;
+  typeHeaderMoved = false;
+  typeHeaderPressStart = { x: e.clientX, y: e.clientY };
+  typeHeaderPressTimer = setTimeout(() => {
+    typeHeaderLongPressFired = true;
+    if (navigator.vibrate) navigator.vibrate(15);
+    openTypeFilterSheet();
+  }, 500);
+});
+
+typeSortHeaderEl.addEventListener("pointermove", (e) => {
+  if (!typeHeaderPressStart) return;
+  const dx = Math.abs(e.clientX - typeHeaderPressStart.x);
+  const dy = Math.abs(e.clientY - typeHeaderPressStart.y);
+  if (dx > 8 || dy > 8) {
+    typeHeaderMoved = true;
+    clearTimeout(typeHeaderPressTimer);
+  }
+});
+
+function endTypeHeaderPress() {
+  clearTimeout(typeHeaderPressTimer);
+  typeHeaderPressStart = null;
+}
+
+typeSortHeaderEl.addEventListener("pointerup", () => {
+  const wasLongPress = typeHeaderLongPressFired;
+  const wasMoved = typeHeaderMoved;
+  endTypeHeaderPress();
+  // A long-press already handled itself, off the timer. A drag (scrolling
+  // the table from here) is neither a tap nor a long-press — do nothing.
+  if (wasLongPress || wasMoved) return;
+
+  typeSortActive = !typeSortActive;
+  typeSortHeaderEl.classList.toggle("sort-active", typeSortActive);
+  typeSortArrowEl.hidden = !typeSortActive;
+  render();
+});
+
+typeSortHeaderEl.addEventListener("pointercancel", endTypeHeaderPress);
+
+// Belt-and-suspenders alongside .cell-type-header's CSS (user-select/
+// touch-callout: none) — same reasoning as the identical guard on the row
+// list further down, for the same kind of gesture: if a device still fires
+// its native long-press text-selection menu despite that CSS, this stops
+// it from popping up and stealing the touch out from under the long-press
+// timer above.
+typeSortHeaderEl.addEventListener("contextmenu", (e) => e.preventDefault());
 
 // ---- Overflow menu: Add item, Recently deleted, Back up, Restore ----
 //
@@ -1260,6 +1437,7 @@ window.addEventListener("popstate", () => {
   if (photoActionSheetEl.classList.contains("open")) { hidePhotoActionSheet(); return; }
   if (historyAddSheetEl.classList.contains("open")) { hideHistoryAddSheet(); return; }
   if (overflowSheetEl.classList.contains("open")) { hideOverflowSheet(); return; }
+  if (typeFilterSheetEl.classList.contains("open")) { hideTypeFilterSheet(); return; }
   if (searchExpanded) { hideSearch(); return; }
   if (openUid) hideSheet();
   if (deletedSheetEl.classList.contains("open")) hideDeletedList();
@@ -1558,9 +1736,10 @@ sheetDragEl.addEventListener("pointercancel", endDrag);
 // `position` (a float — see §4) is recomputed from the row's new
 // neighbours; `code` is never touched.
 //
-// Disabled whenever search/filter is active (§11): the row's on-screen
-// place is a filtered subset then, not the real order, so a drop would
-// mean something different from what it looks like.
+// Disabled whenever search, the Bank/Home filter, the Type filter, or a
+// Type sort is active (§11): the row's on-screen place is a filtered and/or
+// re-sorted view then, not the real order, so a drop would mean something
+// different from what it looks like.
 //
 // Known minor limitation: putting a `transform` on the dragged row (for
 // the lift/scale) makes it the containing block for its own sticky code
@@ -1587,7 +1766,7 @@ function showToast(message) {
 }
 
 function canReorder() {
-  return activeFilter === "all" && searchQuery === "";
+  return activeFilter === "all" && searchQuery === "" && !activeTypeFilter && !typeSortActive;
 }
 
 let rowPressTimer = null;
