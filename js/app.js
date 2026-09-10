@@ -365,26 +365,35 @@ let typeSortActive = false;
 // value, built from that same array — same single-source-of-truth idea as
 // the sheet's own Type field a bit further down. Inserted right before the
 // sheet's Cancel button, which stays written directly in the HTML.
-function makeTypeFilterOption(value, label) {
+//
+// "All types" gets its own look (bold, a ↺ reset icon, a gap below it like
+// Cancel's own gap above) so it doesn't read as an 8th type — it's the way
+// back out, not another choice in the list.
+function makeTypeFilterOption(value, label, icon = "") {
   const btn = document.createElement("button");
   btn.className = "action-sheet-btn type-filter-option";
+  if (icon) btn.classList.add("type-filter-all-option");
   btn.dataset.type = value;
   btn.dataset.label = label;
-  btn.textContent = label;
+  btn.dataset.icon = icon;
   typeFilterSheetEl.insertBefore(btn, typeFilterCancelBtnEl);
   return btn;
 }
 
-const typeFilterOptionEls = [makeTypeFilterOption("", "All types")];
+const typeFilterOptionEls = [makeTypeFilterOption("", "All types", "↺")];
 TYPES.forEach((type) => typeFilterOptionEls.push(makeTypeFilterOption(type, type)));
 
 // Re-labels whichever option matches the current filter with a leading
 // checkmark (and un-labels every other one) — run right before the sheet
 // opens, so it always reflects whatever's actually applied right now.
+// "All types" shows its ↺ icon in place of a checkmark when it isn't the
+// active choice, and a checkmark instead when it is — same swap-in-place
+// rule as the checkmark alone gives every other option.
 function updateTypeFilterSheetSelection() {
   typeFilterOptionEls.forEach((btn) => {
     const isActive = btn.dataset.type === activeTypeFilter;
-    btn.textContent = isActive ? `✓ ${btn.dataset.label}` : btn.dataset.label;
+    const prefix = isActive ? "✓" : btn.dataset.icon;
+    btn.textContent = prefix ? `${prefix} ${btn.dataset.label}` : btn.dataset.label;
     btn.classList.toggle("type-filter-option-active", isActive);
   });
 }

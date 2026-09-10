@@ -16,7 +16,7 @@
 // cached either one's service worker never noticed the other was different
 // after a Pages source-branch switch, and kept serving the first one's
 // files indefinitely.
-const CACHE_VERSION = "v3";
+const CACHE_VERSION = "v4";
 const CACHE_NAME = `jewelry-shell-${CACHE_VERSION}`;
 
 const APP_SHELL = [

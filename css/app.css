@@ -865,6 +865,15 @@ html, body {
   font-weight: 600;
 }
 
+/* "All types", the picker's reset option — bold always (not just when
+   active), plus a gap below it so it visually splits off from the 7 real
+   type choices underneath. Same margin-gap trick as .action-sheet-cancel's
+   own margin-top just below, applied to the opposite edge here. */
+.type-filter-all-option {
+  font-weight: 600;
+  margin-bottom: 8px;
+}
+
 /* ---- Full-screen photo viewer (§10) ---- */
 .photo-viewer {
   position: fixed;
