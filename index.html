@@ -39,7 +39,16 @@
         <div class="cell cell-photo1">Photo</div>
         <div class="cell cell-name">Name</div>
         <div class="cell cell-status">Where</div>
-        <div class="cell cell-type">Type</div>
+        <!-- Tap: toggle alphabetical sort. Long-press: open the custom
+             type-filter picker (§11) — the funnel icon is a hint that a
+             long-press does something more than the tap. -->
+        <button class="cell cell-type cell-type-header" id="typeSortHeader">
+          <span class="cell-type-label">Type</span>
+          <svg class="type-filter-icon" id="typeFilterIcon" viewBox="0 0 16 14" aria-hidden="true" focusable="false">
+            <path d="M1,1 L15,1 L9.5,7.5 L9.5,13 L6.5,13 L6.5,7.5 Z"></path>
+          </svg>
+          <span class="type-sort-arrow" id="typeSortArrow" hidden>▲</span>
+        </button>
         <div class="cell cell-photo2">Box</div>
         <div class="cell cell-note">Note</div>
       </div>
@@ -131,6 +140,17 @@
     <button class="action-sheet-btn action-sheet-cancel" id="historyAddCancelBtn">Cancel</button>
   </div>
 
+  <!-- §11: long-press the "Type" column header — a custom single-select
+       picker, deliberately not a native <select>, so there's no OS-added
+       control chrome. JS inserts 1 button per type (plus "All types")
+       before the Cancel button, and re-labels the currently-active one
+       with a leading checkmark each time this opens. -->
+  <div class="backdrop" id="typeFilterBackdrop"></div>
+  <div class="action-sheet" id="typeFilterSheet">
+    <div class="action-sheet-info">Filter by type</div>
+    <button class="action-sheet-btn action-sheet-cancel" id="typeFilterCancelBtn">Cancel</button>
+  </div>
+
   <!-- §10: full-screen photo viewer -->
   <div class="photo-viewer" id="photoViewer">
     <img class="photo-viewer-img" id="photoViewerImg" alt="">
@@ -171,7 +191,7 @@
   </div>
 
   <!-- §11: "Clear the filter to reorder." when a long-press-drag is
-       attempted while search/filter is active. -->
+       attempted while search, a filter, or a Type sort is active. -->
   <div class="toast" id="toast"></div>
 
 </div>
